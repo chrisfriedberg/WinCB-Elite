@@ -154,6 +154,9 @@ class WinCB_Elite:
         self.in_progress_clip = {"text": "", "images": []}  # In-progress clip construction
         self.click_outside_handler_id = None # For managing context menu click-outside binding
         self.current_group_name = None  # Tracks the loaded clip group name
+        self.auto_pause_seconds = 0  # 0 means disabled, otherwise seconds until auto-pause
+        self.auto_pause_timer = None  # Timer ID for auto-pause functionality
+        self.last_activity_time = time.time()  # Track when the last clipboard activity occurred
         
         # Tag system - Color definitions
         self.TAG_COLORS = {
@@ -206,29 +209,63 @@ class WinCB_Elite:
         self.top_nav.columnconfigure(1, weight=1)
         self.top_nav.rowconfigure(1, pad=3)  # Add padding between rows
 
-        # Create search box with separate label
-        search_frame = ctk.CTkFrame(self.top_nav, fg_color="transparent")
-        search_frame.grid(row=0, column=0, padx=(0, 5), pady=5, sticky="w")
-        
-        # Add explicit "Search:" label
-        ctk.CTkLabel(
-            search_frame, 
-            text="Search:", 
-            font=("Segoe UI", 11),
-            width=50,
-            anchor="e"
-        ).pack(side="left", padx=(0, 3))
-        
-        # Create the search entry
+        # Search frame
+        self.search_frame = ctk.CTkFrame(self.top_nav, fg_color="transparent")
+        self.search_frame.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ctk.CTkLabel(self.search_frame, text="Search:").pack(side="left", padx=(0, 2))
         self.search_var = ctk.StringVar()
         self.search_entry = ctk.CTkEntry(
-            search_frame, 
+            self.search_frame,
             textvariable=self.search_var, 
             width=120
         )
         self.search_entry.pack(side="left")
+        # Direct binding to immediately force a refresh when search is cleared
+        def on_search_clear(event):
+            # If backspace/delete results in empty field, force refresh immediately
+            if self.search_entry.get() == "":
+                # Force show ALL clips immediately
+                self.filtered_history_indices = list(range(len(self.history)))
+                # Clear any filtering state
+                self._is_tag_filtering = False
+                if hasattr(self, '_current_filter_tag'):
+                    delattr(self, '_current_filter_tag')
+                # Update display
+                self.current_filtered_index = 0
+                self._show_clip()
+                # Show confirmation that filter is cleared
+                self._show_popup("Cleared all filters - showing all clips")
+        
+        self.search_entry.bind("<BackSpace>", on_search_clear)
+        self.search_entry.bind("<Delete>", on_search_clear)
         self.search_entry.bind("<KeyRelease>", self._on_search_change)
         self._add_tooltip(self.search_entry, "Search clip titles and text content")
+        
+        # Add a dedicated clear button
+        def force_clear_search():
+            # Clear the search field
+            self.search_var.set("")
+            # Force show ALL clips
+            self.filtered_history_indices = list(range(len(self.history)))
+            # Reset tag filtering
+            self._is_tag_filtering = False
+            if hasattr(self, '_current_filter_tag'):
+                delattr(self, '_current_filter_tag')
+            # Update display
+            self.current_filtered_index = 0
+            self._show_clip()
+            # Show confirmation
+            self._show_popup("Showing all clips")
+            
+        self.clear_search_btn = ctk.CTkButton(
+            self.search_frame,
+            text="✕",
+            width=28,
+            height=28,
+            command=force_clear_search
+        )
+        self.clear_search_btn.pack(side="left", padx=(5, 0))
+        self._add_tooltip(self.clear_search_btn, "Clear search and show all clips")
 
         # Buffer functionality still exists but status indicator removed from UI
         # (Still accessible via Ctrl+Shift+C to copy, Ctrl+Shift+V to paste)
@@ -294,29 +331,47 @@ class WinCB_Elite:
         tag_control_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
         tag_control_frame.pack(side="right")
         
-        # Add tag button (now first position)
-        self.add_tag_btn = ctk.CTkButton(
-            tag_control_frame,
-            text="+",
-            width=28,
-            height=22,
-            font=("Segoe UI", 12, "bold"),  # Larger font for + symbol
-            command=self._show_tag_dialog
-        )
-        self.add_tag_btn.pack(side="left", padx=(0, 5))  # Add right padding
-        self._add_tooltip(self.add_tag_btn, "Add a new tag")
-        
-        # Clear tags button (now second position)
+        # Clear tags button (first/leftmost position)
         self.clear_tags_btn = ctk.CTkButton(
             tag_control_frame,
             text="✕",
             width=22,
             height=22,
             font=("Segoe UI", 10),
+            fg_color="#C0392B",  # Red color
+            hover_color="#E74C3C",  # Lighter red on hover
             command=self._clear_current_clip_tags
         )
-        self.clear_tags_btn.pack(side="left")
+        self.clear_tags_btn.pack(side="left", padx=(0, 5))
         self._add_tooltip(self.clear_tags_btn, "Clear all tags from current clip")
+        
+        # Add tag button (second position)
+        self.add_tag_btn = ctk.CTkButton(
+            tag_control_frame,
+            text="+",
+            width=20,
+            height=20,
+            font=("Segoe UI", 15, "bold"),  # Larger font for + symbol
+            fg_color="#1E5631",  # Dark green color
+            hover_color="#2E7D32",  # Slightly lighter green for hover
+            command=self._show_tag_dialog
+        )
+        self.add_tag_btn.pack(side="left", padx=(0, 5))  # Add right padding
+        self._add_tooltip(self.add_tag_btn, "Add a new tag")
+        
+        # Refresh button (third/rightmost position) - reset all filters and show all clips
+        self.refresh_btn = ctk.CTkButton(
+            tag_control_frame,
+            text="Refresh",
+            width=70,
+            height=22,
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#1E8449",  # Green color
+            hover_color="#27AE60",  # Lighter green on hover
+            command=self._reset_filtering
+        )
+        self.refresh_btn.pack(side="left")
+        self._add_tooltip(self.refresh_btn, "Refresh view - show all clips")
 
         # --- Scrollable Content Area ---
         self.scrollable = ctk.CTkScrollableFrame(
@@ -368,6 +423,12 @@ class WinCB_Elite:
         self._load_history()
         self._filter_and_show()
         self.root.after(500, self.poll_clipboard)
+        
+        # Start auto-pause timer if enabled
+        if self.auto_pause_seconds > 0 and not self.capture_paused:
+            self.root.after(1000, self._start_auto_pause_timer)
+            print(f"Auto-pause timer scheduled: {self.auto_pause_seconds} seconds")
+            
         self.icon_thread = threading.Thread(target=self._setup_tray, daemon=True)
         self.icon_thread.start()
 
@@ -649,16 +710,141 @@ class WinCB_Elite:
         # Conditional Delete key binding to avoid deleting clips while editing
         def delete_clip_if_no_focus(event):
             focused = self.root.focus_get()
+            
+            # NEVER EVER delete clips if search field has ANY involvement whatsoever
+            if focused == self.search_entry:
+                print("DEBUG: Delete key blocked - search entry has direct focus")
+                return "break"  # Completely stop event propagation
+            
+            # Double-check search entry has no focus before continuing
+            has_search_focus = False
+            try:
+                if self.search_entry.focus_get() or self.search_entry.focus_displayof():
+                    has_search_focus = True
+            except:
+                pass
+                
+            if has_search_focus:
+                return "break"
+                
+            # Only proceed if not editing text and search doesn't have focus
             if focused not in (self.title_entry, self.textbox, self.search_entry):
                 self.delete_current_clip()
 
         self.root.bind("<Delete>", delete_clip_if_no_focus)
         self.root.bind("<Control-f>", lambda e: self.search_entry.focus_set())
         self.root.bind("<Control-F>", lambda e: self.search_entry.focus_set())
+        
+        # Escape key to clear filtering
+        self.root.bind("<Escape>", lambda e: self._reset_filtering())
+        # Also bind Escape to the search entry for immediate clearing
+        self.search_entry.bind("<Escape>", lambda e: self._reset_filtering())
+        
+        # Override the entry's handling of Delete/Backspace to prevent any focus issues
+        self.search_entry.bind("<FocusIn>", lambda e: print("DEBUG: Search entry got focus"))
+        self.search_entry.bind("<FocusOut>", lambda e: print("DEBUG: Search entry lost focus"))
 
     def _on_search_change(self, event=None):
         """Handle search input changes."""
         self._finalize_text_edit()
+        
+        # Update activity time when searching
+        self._update_activity_time()
+        
+        # CRITICAL SAFETY CHECK
+        # Detect Delete key and block it from triggering anything destructive
+        if event and event.keysym == "Delete":
+            print("DEBUG: Delete key pressed in search field - BLOCKED from processing")
+            return  # Block any processing of the Delete key in search
+            
+        # Detect Backspace key deletion events
+        is_backspace = event and event.keysym == "BackSpace"
+        
+        # Get current search text
+        current_search = self.search_entry.get().strip()
+        
+        # Print more diagnostic info about the search change
+        print(f"DEBUG: Search field changed: '{current_search}' via {event.keysym if event else 'unknown'}")
+        
+        # Store the current clip's original index before filtering changes
+        current_original_index = -1
+        if 0 <= self.current_filtered_index < len(self.filtered_history_indices):
+            try:
+                current_original_index = self.filtered_history_indices[self.current_filtered_index]
+                # Store clip information for debugging
+                clip_info = "unknown"
+                if 0 <= current_original_index < len(self.history):
+                    clip = self.history[current_original_index]
+                    clip_info = f"{clip.get('title', '?')} ({clip.get('type', '?')})"
+                print(f"DEBUG: Current clip before search change: {clip_info} at index {current_original_index}")
+            except Exception as e:
+                print(f"ERROR storing current clip info: {e}")
+                pass
+        
+        # Check if we're in tag filtering mode
+        was_tag_filtering = False
+        current_tag_name = None
+        if hasattr(self, '_is_tag_filtering') and self._is_tag_filtering:
+            was_tag_filtering = True
+            current_tag_name = getattr(self, '_current_filter_tag', None)
+            print(f"DEBUG: In tag filtering mode for tag: {current_tag_name}")
+            
+            # When clearing the search box while in tag filtering mode
+            if not current_search:
+                print("DEBUG: Tag filter being cleared - showing all clips without changing anything")
+                
+                # Clear the tag filtering flags
+                self._is_tag_filtering = False
+                if hasattr(self, '_current_filter_tag'):
+                    delattr(self, '_current_filter_tag')
+                    
+                # Reset to show all clips
+                self.filtered_history_indices = list(range(len(self.history)))
+                print(f"DEBUG: Reset to show all {len(self.filtered_history_indices)} clips")
+                
+                # Keep the same clip selected if possible
+                if current_original_index >= 0:
+                    if current_original_index < len(self.history):
+                        try:
+                            # The indices now match the original history, so the index remains the same
+                            self.current_filtered_index = current_original_index
+                            print(f"DEBUG: Kept original clip at index {current_original_index}")
+                        except Exception as e:
+                            print(f"ERROR finding original clip: {e}")
+                            self.current_filtered_index = 0
+                    else:
+                        self.current_filtered_index = 0
+                
+                # Show the clip and return early to avoid normal filtering
+                self._show_clip()
+                self._show_popup("Cleared tag filter - showing all clips")
+                return
+            
+        # Clear tag filtering on empty search - even if we weren't previously tag filtering
+        elif not current_search:
+            # Make sure any tag filtering is cleared
+            self._is_tag_filtering = False
+            if hasattr(self, '_current_filter_tag'):
+                delattr(self, '_current_filter_tag')
+                print("DEBUG: Cleared tag filter state on empty search")
+                
+        # Still using the tag filter - just with a modified search term
+        elif current_search.startswith('#') and current_tag_name:
+            if current_search[1:].lower() == current_tag_name.lower():
+                # The tag search hasn't changed, just keep it as is
+                pass
+            else:
+                # Changed to a different tag - update the filter tag
+                self._current_filter_tag = current_search[1:]
+                print(f"DEBUG: Changed tag filter to: {self._current_filter_tag}")
+        else:
+            # Changed to a normal search - no longer filtering by tag
+            self._is_tag_filtering = False
+            if hasattr(self, '_current_filter_tag'):
+                delattr(self, '_current_filter_tag')
+                print("DEBUG: Exited tag filtering mode - switched to normal search")
+        
+        # If we're not handling a special tag case, continue with normal filtering
         self._filter_and_show()
 
     # WinCB-Elite_part2.py
@@ -831,7 +1017,8 @@ class WinCB_Elite:
     def _load_config(self):
         """Load application configuration from JSON file."""
         self.config = {
-            "custom_icon_path": None  # Default: no custom icon
+            "custom_icon_path": None,  # Default: no custom icon
+            "auto_pause_seconds": 0    # Default: auto-pause disabled
         }
         
         if not CONFIG_FILE_PATH.exists():
@@ -853,6 +1040,17 @@ class WinCB_Elite:
                     if not os.path.exists(icon_path):
                         print(f"Warning: Custom icon not found at {icon_path}")
                         self.config["custom_icon_path"] = None
+                        
+                # Load auto-pause setting if it exists
+                if "auto_pause_seconds" in self.config:
+                    try:
+                        seconds = int(self.config["auto_pause_seconds"])
+                        if seconds >= 0:
+                            self.auto_pause_seconds = seconds
+                            print(f"Loaded auto-pause setting: {seconds} seconds")
+                    except (ValueError, TypeError) as e:
+                        print(f"Warning: Invalid auto-pause setting: {e}")
+                        self.config["auto_pause_seconds"] = 0
             else:
                 print("Warning: Config file does not contain a dictionary.")
                 
@@ -962,12 +1160,21 @@ class WinCB_Elite:
             self.pause_resume_btn.configure(
                 text="Resume Capture", fg_color="orange", hover_color="darkorange"
             )
-            print("Clipboard capture PAUSED.")
+            print("Clipboard capture PAUSED. Use 'Resume Capture' button or tray menu to resume.")
+            
+            # Cancel auto-pause timer if active
+            if self.auto_pause_timer:
+                self.root.after_cancel(self.auto_pause_timer)
+                self.auto_pause_timer = None
         else:
             self.pause_resume_btn.configure(
                 text="Pause Capture", fg_color=default_color, hover_color=hover_color
             )
-            print("Clipboard capture RESUMED.")
+            print("Clipboard capture RESUMED. Now monitoring clipboard changes.")
+            
+            # Start auto-pause timer if enabled
+            if self.auto_pause_seconds > 0:
+                self._start_auto_pause_timer()
 
     def poll_clipboard(self):
         """Poll system clipboard for new content with improved error handling."""
@@ -1122,6 +1329,9 @@ class WinCB_Elite:
             )
             return
 
+        # Update last activity time whenever content is added to history
+        self.last_activity_time = time.time()
+        
         current_time = time.time()
         new_entry = {
             "type": data_type,
@@ -1276,70 +1486,157 @@ class WinCB_Elite:
 
     # --- Filtering and Display ---
 
-    def _on_search_change(self, event=None):
-        """Handle search input changes."""
-        self._finalize_text_edit()
-        self._filter_and_show()
-
     def _filter_history(self):
         """Filter history based on search query."""
         search_term = self.search_entry.get().lower().strip()
+        
+        # Handle empty search - SHOW ALL CLIPS
         if not search_term:
+            print("REFRESH: Showing all clips - search field empty")
+            
+            # Remember current clip if possible
+            current_clip_index = -1
+            if 0 <= self.current_filtered_index < len(self.filtered_history_indices):
+                try:
+                    current_clip_index = self.filtered_history_indices[self.current_filtered_index]
+                except:
+                    pass
+            
+            # ALWAYS show all clips when search is empty
             self.filtered_history_indices = list(range(len(self.history)))
+            
+            # Reset tag filtering state
+            self._is_tag_filtering = False
+            if hasattr(self, '_current_filter_tag'):
+                delattr(self, '_current_filter_tag')
+            
+            # Try to keep same clip selected
+            if 0 <= current_clip_index < len(self.history):
+                self.current_filtered_index = current_clip_index
+            else:
+                self.current_filtered_index = 0 if self.filtered_history_indices else -1
+                
+            return
+        
+        print(f"DEBUG: Filtering history with search term: '{search_term}'")
+        self.filtered_history_indices = []
+        
+        # If it's a tag search with # prefix, look specifically in tags
+        if search_term.startswith('#') and len(search_term) > 1:
+            tag_to_find = search_term[1:].lower()
+            print(f"DEBUG: Searching for specific tag: '{tag_to_find}'")
+            for i, item in enumerate(self.history):
+                if "tags" in item:
+                    for tag in item.get("tags", []):
+                        if tag.lower() == tag_to_find:
+                            self.filtered_history_indices.append(i)
+                            break
+        # Otherwise do a normal search across all fields
         else:
-            self.filtered_history_indices = []
             for i, item in enumerate(self.history):
                 item_matches = False
                 try:
+                    # Check title
                     if search_term in item.get("title", "").lower():
                         item_matches = True
-                    elif item.get("type") == "text" and isinstance(
-                        item.get("content"), str
-                    ):
+                    # Check content for text clips
+                    elif item.get("type") == "text" and isinstance(item.get("content"), str):
                         if search_term in item["content"].lower():
                             item_matches = True
-                    # Also search in tags
-                    elif "tags" in item:
+                    # Check tags
+                    if not item_matches and "tags" in item:
                         for tag in item.get("tags", []):
                             if search_term in tag.lower():
                                 item_matches = True
                                 break
+                    
                     if item_matches:
                         self.filtered_history_indices.append(i)
                 except Exception as e:
-                    print(f"Warning: Error during search filter on item index {i}: {e}")
+                    print(f"WARNING: Error during search filter on item index {i}: {e}")
 
     def _filter_and_show(self):
         """Filter history and update display, trying to preserve current item if possible."""
+        # Store original clip info before filtering
         current_original_index = -1
+        current_clip_info = None
+        
         if 0 <= self.current_filtered_index < len(self.filtered_history_indices):
             try:
                 current_original_index = self.filtered_history_indices[
                     self.current_filtered_index
                 ]
+                
+                # Store more information about the current clip for debug purposes
+                if 0 <= current_original_index < len(self.history):
+                    clip = self.history[current_original_index]
+                    current_clip_info = {
+                        "title": clip.get("title", ""),
+                        "type": clip.get("type", ""),
+                        "tags": clip.get("tags", []),
+                        "index": current_original_index
+                    }
+                    print(f"DEBUG: Current clip before filtering: {current_clip_info}")
             except IndexError:
                 pass
 
+        # Apply filtering
         self._filter_history()
-
+        
+        # Check if we have any clips after filtering
         num_filtered = len(self.filtered_history_indices)
+        print(f"DEBUG: After filtering, found {num_filtered} matching clips")
 
         if num_filtered == 0:
+            # No clips match the filter
             self.current_filtered_index = -1
+            print("DEBUG: No clips match the current filter")
         else:
+            # Try to find the same clip in the new filtered list
             new_filtered_index = -1
             if current_original_index != -1:
                 try:
+                    # Find the same clip in the new filtered list
                     new_filtered_index = self.filtered_history_indices.index(
                         current_original_index
                     )
+                    print(f"DEBUG: Found current clip at new index {new_filtered_index} in filtered list")
                 except ValueError:
+                    print(f"DEBUG: Current clip (index {current_original_index}) not found in new filtered list")
+                    if current_clip_info:
+                        print(f"DEBUG: Missing clip details: {current_clip_info}")
                     pass
+                    
+            # Update the current index (keep the same clip if possible, otherwise show first result)
             self.current_filtered_index = (
                 new_filtered_index if new_filtered_index != -1 else 0
             )
-
+        
+        # Show the clip
         self._show_clip()
+        
+    def _reset_filtering(self):
+        """Reset all filtering to show all clips - use as an emergency escape from stuck filters."""
+        print("RESET: Emergency reset of all filtering")
+        
+        # Clear tag filtering state
+        self._is_tag_filtering = False
+        if hasattr(self, '_current_filter_tag'):
+            delattr(self, '_current_filter_tag')
+            
+        # Clear search box WITHOUT triggering filter changes
+        self.search_var.set("")
+        self.search_entry.delete(0, "end")
+        
+        # FORCE show all clips
+        self.filtered_history_indices = list(range(len(self.history)))
+        
+        # ALWAYS go to the first clip (index 0) when refreshing
+        self.current_filtered_index = 0 if self.filtered_history_indices else -1
+            
+        # Show the clip and confirmation
+        self._show_clip()
+        self._show_popup("Cleared all filters - showing first clip")
 
     def _update_page_label(self):
         """Update the page label like 'Clip 3/15'."""
@@ -1396,6 +1693,9 @@ class WinCB_Elite:
         """Displays the currently selected clip in the content area."""
         if not self.running:
             return
+            
+        # Update activity time when displaying a clip
+        self._update_activity_time()
 
         self.current_clip_modified = False
         self.current_display_image = None
@@ -1606,6 +1906,9 @@ class WinCB_Elite:
 
     def _on_text_edited(self, event=None):
         """Handles text modification in the textbox, schedules auto-save."""
+        # Update activity time when actively editing
+        self._update_activity_time()
+        
         if (
             not self.running
             or self.textbox.cget("state") == "disabled"
@@ -1697,6 +2000,10 @@ class WinCB_Elite:
 
     def _finalize_text_edit(self):
         """Immediately saves any pending text edits if the timer is active."""
+        # Update activity time if there were text edits
+        if self.current_clip_modified:
+            self._update_activity_time()
+            
         if self.save_timer_id:
             self.root.after_cancel(self.save_timer_id)
             self.save_timer_id = None
@@ -1709,6 +2016,9 @@ class WinCB_Elite:
 
     def _update_clip_title(self, event=None):
         """Updates the title of the current clip immediately on KeyRelease."""
+        # Update activity time when editing titles
+        self._update_activity_time()
+        
         if not self.running or not (
             0 <= self.current_filtered_index < len(self.filtered_history_indices)
         ):
@@ -1738,6 +2048,7 @@ class WinCB_Elite:
     def jump_to_oldest(self):
         """Moves to the oldest clip in the filtered history."""
         self._finalize_text_edit()
+        self._update_activity_time()  # Update activity when navigating
         num_filtered = len(self.filtered_history_indices)
         if num_filtered <= 1:
             self._show_popup("No older clips available.")
@@ -1748,6 +2059,7 @@ class WinCB_Elite:
     def jump_to_newest(self):
         """Moves to the newest clip in the filtered history."""
         self._finalize_text_edit()
+        self._update_activity_time()  # Update activity when navigating
         num_filtered = len(self.filtered_history_indices)
         if num_filtered <= 1:
             self._show_popup("No newer clips available.")
@@ -1758,6 +2070,7 @@ class WinCB_Elite:
     def delete_current_clip(self):
         """Deletes the currently displayed clip from history."""
         self._finalize_text_edit()
+        self._update_activity_time()  # Update activity when deleting clips
 
         if not self.running or not (
             0 <= self.current_filtered_index < len(self.filtered_history_indices)
@@ -1773,21 +2086,79 @@ class WinCB_Elite:
             if not (0 <= original_index_to_delete < len(self.history)):
                 self._show_popup("Error deleting clip: Data inconsistency.")
                 return
-
-            removed_item = self.history.pop(original_index_to_delete)
-            print(f"Deleted clip: {removed_item.get('title', '?')}")
-            self._save_history()
-            self._filter_and_show()
+                
+            # Get clip title for the confirmation message
+            clip_title = self.history[original_index_to_delete].get("title", "Untitled clip")
+            
+            # Create confirmation dialog
+            confirm_dialog = ctk.CTkToplevel(self.root)
+            confirm_dialog.title("Confirm Delete")
+            confirm_dialog.geometry("400x180")
+            confirm_dialog.transient(self.root)
+            confirm_dialog.grab_set()
+            confirm_dialog.attributes("-topmost", True)
+            confirm_dialog.configure(fg_color=MAIN_BG_COLOR)
+            
+            message = f"Are you sure you want to delete this clip?\n\n\"{clip_title}\""
+            ctk.CTkLabel(
+                confirm_dialog, 
+                text=message,
+                wraplength=350,
+                justify="center"
+            ).pack(pady=(20, 15), padx=20)
+            
+            buttons_frame = ctk.CTkFrame(confirm_dialog, fg_color="transparent")
+            buttons_frame.pack(pady=(0, 15))
+            
+            def on_cancel():
+                confirm_dialog.destroy()
+                
+            def on_confirm():
+                confirm_dialog.destroy()
+                
+                # Now actually delete the clip
+                try:
+                    # Double-check the index is still valid
+                    if 0 <= original_index_to_delete < len(self.history):
+                        removed_item = self.history.pop(original_index_to_delete)
+                        print(f"Deleted clip: {removed_item.get('title', '?')}")
+                        self._save_history()
+                        self._filter_and_show()
+                    else:
+                        self._show_popup("Error: The clip to delete no longer exists.")
+                except Exception as delete_error:
+                    print(f"Error during confirmed deletion: {delete_error}")
+                    traceback.print_exc()
+            
+            ctk.CTkButton(
+                buttons_frame,
+                text="Cancel",
+                width=100,
+                command=on_cancel
+            ).pack(side="left", padx=10)
+            
+            ctk.CTkButton(
+                buttons_frame,
+                text="Delete",
+                width=100,
+                fg_color="#8B0000",  # Dark red
+                hover_color="#A00000",  # Slightly lighter red
+                command=on_confirm
+            ).pack(side="left", padx=10)
+            
+            # Center the dialog
+            self._center_toplevel(confirm_dialog)
 
         except IndexError:
             self._show_popup("Error deleting clip: Invalid index.")
         except Exception as e:
             print(f"Error deleting clip: {e}")
             traceback.print_exc()
-            self._filter_and_show()
 
     def copy_selection_to_history(self):
         """Copies selected text or the current image as a new history item."""
+        # Update activity time when creating new clips
+        self._update_activity_time()
         # First check if we have text selected in the textbox
         if self.textbox.winfo_ismapped() and self.textbox.cget("state") == "normal":
             try:
@@ -1999,19 +2370,61 @@ class WinCB_Elite:
             return
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Confirm Clear History")
-        dialog.geometry("350x180")
+        dialog.geometry("400x250")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.attributes("-topmost", True)
         dialog.configure(fg_color=MAIN_BG_COLOR)
+        
+        # Strong warning message
         ctk.CTkLabel(
             dialog,
-            text="Clear entire clipboard history?\nThis action cannot be undone.",
-        ).pack(pady=20, padx=10)
+            text="⚠️ WARNING ⚠️",
+            font=("Segoe UI", 14, "bold"),
+            text_color="#ff9900",
+        ).pack(pady=(15, 5))
+        
+        ctk.CTkLabel(
+            dialog,
+            text="You are about to delete ALL clips in your clipboard history.\n\nThis action CANNOT be undone and will permanently remove all clips and tags.",
+            wraplength=350,
+            justify="center",
+        ).pack(pady=(5, 20), padx=10)
+        
+        # Confirmation checkbox
+        confirm_var = ctk.IntVar(value=0)
+        confirm_check = ctk.CTkCheckBox(
+            dialog,
+            text="I understand I will lose all my clips and tags",
+            variable=confirm_var,
+            checkbox_width=20,
+            checkbox_height=20,
+            corner_radius=3
+        )
+        confirm_check.pack(pady=(0, 10))
+        
         btns = ctk.CTkFrame(dialog, fg_color="transparent")
         btns.pack(pady=10)
 
         def on_yes():
+            # First check if the confirmation checkbox is checked
+            if confirm_var.get() != 1:
+                # Show error if checkbox not checked
+                error_label = ctk.CTkLabel(
+                    dialog,
+                    text="You must check the confirmation box",
+                    text_color="#ff3333",
+                    font=("Segoe UI", 11, "bold")
+                )
+                # Insert above button frame
+                error_label.pack_forget()  # Ensure it's not already packed
+                error_label.pack(before=btns, pady=(0, 5))
+                # Highlight the checkbox
+                confirm_check.configure(border_color="#ff3333", border_width=2)
+                # Auto-close error after a few seconds
+                dialog.after(3000, lambda: error_label.destroy())
+                return
+                
             try:
                 print("Clearing clipboard history...")
                 self.history = []
@@ -2999,6 +3412,60 @@ class WinCB_Elite:
         except Exception as e:
             print(f"Warn: Center Toplevel fail: {e}")
 
+    def _confirm_action(self, title, message, action_callback):
+        """Shows a confirmation dialog and calls action_callback if confirmed.
+        
+        A centralized way to confirm destructive actions.
+        """
+        # Create confirmation dialog
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("400x180")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        dialog.configure(fg_color=MAIN_BG_COLOR)
+        
+        # Message
+        ctk.CTkLabel(
+            dialog, 
+            text=message,
+            wraplength=350,
+            justify="center"
+        ).pack(pady=(20, 15), padx=20)
+        
+        # Buttons
+        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons_frame.pack(pady=(0, 15))
+        
+        def on_cancel():
+            dialog.destroy()
+            
+        def on_confirm():
+            dialog.destroy()
+            # Call the callback if provided
+            if action_callback and callable(action_callback):
+                action_callback()
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Cancel",
+            width=100,
+            command=on_cancel
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Yes, Proceed",
+            width=100,
+            fg_color="#8B0000",  # Dark red
+            hover_color="#A00000",  # Slightly lighter red
+            command=on_confirm
+        ).pack(side="left", padx=10)
+        
+        # Center the dialog
+        self._center_toplevel(dialog)
+
     # --- Close/Quit ---
 
     def _prompt_close(self):
@@ -3070,6 +3537,11 @@ class WinCB_Elite:
         print("- Saving...")
         self._finalize_text_edit()
         
+        # Ensure auto-pause settings are saved
+        print(f"- Saving auto-pause settings: {self.auto_pause_seconds} seconds")
+        self.config["auto_pause_seconds"] = self.auto_pause_seconds
+        self._save_config()
+        
         # Check if we have an active group loaded
         active_group_saved = False
         if hasattr(self, "current_group_name") and self.current_group_name:
@@ -3125,6 +3597,16 @@ class WinCB_Elite:
         if hasattr(self, "icon_thread") and self.icon_thread.is_alive():
             self.icon_thread.join(timeout=0.5)
         print("- Cleaning up...")
+        
+        # Cancel auto-pause timer if active
+        if hasattr(self, "auto_pause_timer") and self.auto_pause_timer:
+            try:
+                self.root.after_cancel(self.auto_pause_timer)
+                self.auto_pause_timer = None
+                print("- Auto-pause timer canceled")
+            except Exception as timer_err:
+                print(f"  Warn: Auto-pause timer cleanup error: {timer_err}")
+                
         try:
             self._hide_preview_popup()
         except:
@@ -3230,6 +3712,7 @@ class WinCB_Elite:
                 item("Hide WinCB-Elite", schedule(self._hide_window), enabled=is_vis),
                 item("Pause Capture", schedule(self._toggle_capture), enabled=is_r),
                 item("Resume Capture", schedule(self._toggle_capture), enabled=is_p),
+                item("Auto-Pause Settings", schedule(self._configure_auto_pause)),
                 pystray.Menu.SEPARATOR,
                 item(
                     "Snap Window",
@@ -4280,6 +4763,7 @@ class WinCB_Elite:
                 item("Hide WinCB-Elite", schedule(self._hide_window), enabled=is_vis),
                 item("Pause Capture", schedule(self._toggle_capture), enabled=is_r),
                 item("Resume Capture", schedule(self._toggle_capture), enabled=is_p),
+                item("Auto-Pause Settings", schedule(self._configure_auto_pause)),
                 pystray.Menu.SEPARATOR,
                 item(
                     "Snap Window",
@@ -4294,7 +4778,7 @@ class WinCB_Elite:
                 ),
                 pystray.Menu.SEPARATOR,
                 item(
-                    "ClipGroup Batch Export", schedule(self._prompt_and_save_batch), enabled=can_sv
+                    "Export Data", schedule(self._prompt_and_save_batch), enabled=can_sv
                 ),
                 item("Clear History", schedule(self.clear_history), enabled=can_clr),
                 pystray.Menu.SEPARATOR,
@@ -4398,6 +4882,9 @@ class WinCB_Elite:
         if not tag or not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
             return
             
+        # Update activity time when adding tags
+        self._update_activity_time()
+            
         original_index = self.filtered_history_indices[self.current_filtered_index]
         if 0 <= original_index < len(self.history):
             # Create tags list if it doesn't exist
@@ -4417,14 +4904,26 @@ class WinCB_Elite:
         if not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
             return
             
-        original_index = self.filtered_history_indices[self.current_filtered_index]
-        if 0 <= original_index < len(self.history):
-            if "tags" in self.history[original_index] and tag in self.history[original_index]["tags"]:
-                self.history[original_index]["tags"].remove(tag)
-                self.current_clip_tags = self.history[original_index]["tags"]
-                self._update_tag_display()
-                self._save_history()
-                print(f"Removed tag '{tag}' from clip")
+        # Update activity time when removing tags
+        self._update_activity_time()
+        
+        # Define what happens when confirmed
+        def do_remove_tag():
+            original_index = self.filtered_history_indices[self.current_filtered_index]
+            if 0 <= original_index < len(self.history):
+                if "tags" in self.history[original_index] and tag in self.history[original_index]["tags"]:
+                    self.history[original_index]["tags"].remove(tag)
+                    self.current_clip_tags = self.history[original_index]["tags"]
+                    self._update_tag_display()
+                    self._save_history()
+                    print(f"Removed tag '{tag}' from clip")
+        
+        # Use the centralized confirmation dialog
+        self._confirm_action(
+            title="Confirm Tag Removal",
+            message=f"Are you sure you want to remove the tag '{tag}'?",
+            action_callback=do_remove_tag
+        )
 
     def _update_tag_display(self):
         """Updates the tag display area with current clip tags."""
@@ -4530,7 +5029,27 @@ class WinCB_Elite:
         if not tag:
             return
             
-        # Clear the search field to avoid confusion with combined filtering
+        # Update activity time when filtering by tag
+        self._update_activity_time()
+        
+        print(f"DEBUG: Filtering by tag: '{tag}'")
+        
+        
+        # Save current clip index in case we need to restore it
+        current_original_index = -1
+        if 0 <= self.current_filtered_index < len(self.filtered_history_indices):
+            try:
+                current_original_index = self.filtered_history_indices[self.current_filtered_index]
+                print(f"DEBUG: Current clip original index: {current_original_index}")
+            except Exception as e:
+                print(f"ERROR getting current clip index: {e}")
+        
+        # Set flags to indicate we're doing tag filtering
+        # This prevents tag removal when search is cleared
+        self._is_tag_filtering = True
+        self._current_filter_tag = tag
+            
+        # Update the search field to show the tag filter
         self.search_var.set(f"#{tag}")  # Use # prefix to indicate tag search
         
         # Filter history to only include clips with this tag
@@ -4538,18 +5057,42 @@ class WinCB_Elite:
         for i, item in enumerate(self.history):
             if "tags" in item and tag in item.get("tags", []):
                 self.filtered_history_indices.append(i)
+        
+        # Count how many clips have this tag        
+        tag_count = len(self.filtered_history_indices)
+        print(f"DEBUG: Found {tag_count} clips with tag '{tag}'")
                 
         # Update the display to show filtered results
-        if self.filtered_history_indices:
-            self.current_filtered_index = 0
+        if tag_count > 0:
+            # If the current clip has this tag, try to keep it selected
+            new_index = 0
+            if current_original_index >= 0:
+                try:
+                    if current_original_index in self.filtered_history_indices:
+                        new_index = self.filtered_history_indices.index(current_original_index)
+                        print(f"DEBUG: Current clip has this tag, keeping it selected at position {new_index}")
+                except Exception:
+                    pass
+                    
+            self.current_filtered_index = new_index
             self._show_clip()
-            self._show_popup(f"Showing {len(self.filtered_history_indices)} clips with tag '{tag}'")
+            self._show_popup(f"Showing {tag_count} clips with tag '{tag}'")
         else:
             self._show_popup(f"No clips found with tag '{tag}'")
-            # Restore full view
-            self.filtered_history_indices = list(range(len(self.history)))
-            if self.filtered_history_indices:
-                self.current_filtered_index = 0
+            # Don't change the filter - stay in the current view
+            # This prevents accidental data loss when clicking on a tag that doesn't exist
+            print("DEBUG: No clips with this tag - not changing the current view")
+            
+            # Just in case we got into an inconsistent state, reset to show all
+            if not self.filtered_history_indices:
+                print("DEBUG: No clips in filtered view - resetting to show all")
+                self.filtered_history_indices = list(range(len(self.history)))
+                self.current_filtered_index = 0 if self.filtered_history_indices else -1
+                self._is_tag_filtering = False
+                
+                # Also update the search field to show no filter
+                self.search_var.set("")
+                
                 self._show_clip()
     
     def _show_tag_dialog(self):
@@ -4655,8 +5198,9 @@ class WinCB_Elite:
                 color_value = self.TAG_COLORS.get(color_name, self.TAG_COLORS["blue"])
                 hover_color = self._brighten_color(color_value, 0.2)
                 
-                def set_tag_name(t=tag):
+                def set_tag_name(t=tag, c=color_name):
                     tag_var.set(t)
+                    color_var.set(c)  # Also set the color to match the tag's current color
                 
                 tag_btn = ctk.CTkButton(
                     tags_buttons_frame,
@@ -4752,6 +5296,18 @@ class WinCB_Elite:
         if not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
             return
             
+        # Show confirmation dialog before clearing tags
+        self._confirm_action(
+            "Delete All Tags", 
+            "Are you sure you want to delete all known clip tags. Continue or Cancel?",
+            lambda: self._execute_clear_tags()
+        )
+        
+    def _execute_clear_tags(self):
+        """Actually performs the tag clearing operation after confirmation."""
+        if not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
+            return
+            
         original_index = self.filtered_history_indices[self.current_filtered_index]
         if 0 <= original_index < len(self.history):
             if "tags" in self.history[original_index]:
@@ -4760,6 +5316,183 @@ class WinCB_Elite:
                 self._update_tag_display()
                 self._save_history()
                 print("All tags cleared from current clip")
+                self._show_popup("All tags deleted from this clip")
+
+    def _configure_auto_pause(self):
+        """Opens a dialog to configure the auto-pause timer."""
+        if not self.running:
+            return
+            
+        # Always read fresh value from config first
+        try:
+            self._load_config()  # Reload config to get latest value
+            print(f"Auto-pause dialog opened with setting: {self.auto_pause_seconds} seconds")
+        except Exception as e:
+            print(f"Error loading config in auto-pause dialog: {e}")
+            
+        # Create dialog window
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Auto-Pause Settings")
+        dialog.geometry("350x180")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.attributes("-topmost", True)
+        dialog.configure(fg_color=MAIN_BG_COLOR)
+        
+        # Heading
+        ctk.CTkLabel(
+            dialog,
+            text="Auto-Pause Configuration",
+            font=("Segoe UI", 14, "bold")
+        ).pack(pady=(15, 5))
+        
+        # Explanation text - updated to clarify behavior
+        ctk.CTkLabel(
+            dialog,
+            text="Automatically pause clipboard capture after the specified period of inactivity.\nSet to 0 to disable auto-pause.",
+            font=("Segoe UI", 11),
+            wraplength=300
+        ).pack(pady=(0, 10))
+        
+        # Input frame
+        input_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        input_frame.pack(pady=(0, 15), fill="x", padx=20)
+        
+        # Label
+        ctk.CTkLabel(
+            input_frame,
+            text="Auto-Pause in (seconds):",
+            font=("Segoe UI", 12),
+            width=170,
+            anchor="e"
+        ).pack(side="left", padx=(0, 10))
+        
+        # Entry for seconds
+        seconds_var = ctk.StringVar(value=str(self.auto_pause_seconds))
+        seconds_entry = ctk.CTkEntry(
+            input_frame,
+            textvariable=seconds_var,
+            width=80,
+            justify="center"
+        )
+        seconds_entry.pack(side="left")
+        
+        # Focus the entry
+        seconds_entry.focus_set()
+        
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons_frame.pack(pady=(5, 15), fill="x", padx=20)
+        
+        # Cancel button
+        ctk.CTkButton(
+            buttons_frame,
+            text="Cancel",
+            width=100,
+            command=dialog.destroy
+        ).pack(side="left", padx=(0, 10))
+        
+        # Set button - applies the new setting
+        def on_set():
+            try:
+                seconds = int(seconds_var.get())
+                if seconds < 0:
+                    seconds = 0
+                
+                self.auto_pause_seconds = seconds
+                
+                # Cancel existing timer if any
+                if self.auto_pause_timer:
+                    self.root.after_cancel(self.auto_pause_timer)
+                    self.auto_pause_timer = None
+                
+                # Start new timer if enabled and clipboard monitoring is active
+                if seconds > 0 and not self.capture_paused:
+                    self._start_auto_pause_timer()
+                    
+                # Save setting to config (always update and save immediately)
+                self.config["auto_pause_seconds"] = seconds
+                print(f"Saving auto-pause setting: {seconds} seconds")
+                self._save_config()  # Save immediately
+
+                # Make double-sure it's saved to config file
+                try:
+                    # Create a separate direct update to config file as backup
+                    config_file_path = CONFIG_FILE_PATH
+                    if os.path.exists(config_file_path):
+                        with open(config_file_path, "r", encoding="utf-8") as f:
+                            config_data = json.load(f)
+                        config_data["auto_pause_seconds"] = seconds
+                        with open(config_file_path, "w", encoding="utf-8") as f:
+                            json.dump(config_data, f, ensure_ascii=False, indent=2)
+                        print(f"Auto-pause setting written directly to config file: {seconds} seconds")
+                except Exception as direct_save_err:
+                    print(f"Error during direct config file write: {direct_save_err}")
+                
+                # Show feedback and close dialog
+                dialog.destroy()
+                
+                if seconds > 0:
+                    self._show_popup(f"Auto-pause set to {seconds} seconds")
+                else:
+                    self._show_popup("Auto-pause disabled")
+                
+            except ValueError:
+                self._show_popup("Please enter a valid number")
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Set",
+            width=100,
+            command=on_set
+        ).pack(side="right")
+        
+        # Center the dialog
+        self._center_toplevel(dialog)
+    
+    def _update_activity_time(self):
+        """Updates the last activity timestamp to indicate user is active in the app.
+        This should be called for any significant user interaction."""
+        self.last_activity_time = time.time()
+        
+    def _start_auto_pause_timer(self):
+        """Starts the auto-pause timer that checks for user inactivity."""
+        if not self.running or self.capture_paused or self.auto_pause_seconds <= 0:
+            return
+        
+        # Cancel existing timer if any
+        if self.auto_pause_timer:
+            self.root.after_cancel(self.auto_pause_timer)
+        
+        # Define the auto-pause check function
+        def check_inactivity():
+            if not self.running or self.capture_paused:
+                return
+            
+            current_time = time.time()
+            idle_time = current_time - self.last_activity_time
+            
+            if idle_time >= self.auto_pause_seconds:
+                # No activity for the specified duration, auto-pause now
+                self.capture_paused = True
+                self.pause_resume_btn.configure(
+                    text="Resume Capture", 
+                    fg_color="orange", 
+                    hover_color="darkorange"
+                )
+                print(f"Clipboard capture AUTO-PAUSED after {int(idle_time)} seconds of inactivity. Use 'Resume Capture' button or tray menu to resume.")
+                self._show_popup(f"Clipboard capture auto-paused after {int(idle_time)} seconds of inactivity")
+                self.auto_pause_timer = None
+            else:
+                # Still active, continue checking
+                remaining = self.auto_pause_seconds - idle_time
+                print(f"DEBUG: Auto-pause: {int(remaining)} seconds of inactivity remaining before auto-pause")
+                # Schedule next check (every 10 seconds for efficiency)
+                self.auto_pause_timer = self.root.after(10000, check_inactivity)
+        
+        # Start the inactivity check (first check after 10 seconds)
+        self.auto_pause_timer = self.root.after(10000, check_inactivity)
+        print(f"Auto-pause timer started: Will pause after {self.auto_pause_seconds} seconds of inactivity")
 
 
 # --- Main Execution ---
