@@ -259,9 +259,9 @@ class WinCB_Elite:
             
         self.clear_search_btn = ctk.CTkButton(
             self.search_frame,
-            text="✕",
+            text="⌫",  # Backspace symbol is more intuitive for clearing
             width=28,
-            height=28,
+            height=30,
             command=force_clear_search
         )
         self.clear_search_btn.pack(side="left", padx=(5, 0))
@@ -334,9 +334,9 @@ class WinCB_Elite:
         # Clear tags button (first/leftmost position)
         self.clear_tags_btn = ctk.CTkButton(
             tag_control_frame,
-            text="✕",
+            text="🗑",  # Trash can icon better indicates removal
             width=22,
-            height=22,
+            height=30,
             font=("Segoe UI", 10),
             fg_color="#C0392B",  # Red color
             hover_color="#E74C3C",  # Lighter red on hover
@@ -350,7 +350,7 @@ class WinCB_Elite:
             tag_control_frame,
             text="+",
             width=20,
-            height=20,
+            height=30,
             font=("Segoe UI", 15, "bold"),  # Larger font for + symbol
             fg_color="#1E5631",  # Dark green color
             hover_color="#2E7D32",  # Slightly lighter green for hover
@@ -362,9 +362,9 @@ class WinCB_Elite:
         # Refresh button (third/rightmost position) - reset all filters and show all clips
         self.refresh_btn = ctk.CTkButton(
             tag_control_frame,
-            text="Refresh",
-            width=70,
-            height=22,
+            text="↻ Refresh",  # Added refresh symbol for clarity
+            width=80,  # Slightly wider for the new symbol
+            height=30,
             font=("Segoe UI", 10, "bold"),
             fg_color="#1E8449",  # Green color
             hover_color="#27AE60",  # Lighter green on hover
