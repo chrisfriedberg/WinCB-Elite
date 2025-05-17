@@ -2479,48 +2479,17 @@ class WinCB_Elite:
                         title = item.get("title", "?")
                         kind = item.get("type")
                         content = item.get("content")
-                        tags = item.get("tags", [])
-                        
                         f.write(
                             f"--- Clip {filt_idx+1}/{num_save} ---\nTitle: {title}\nType: {kind}\n"
                         )
-                        
-                        # Add tags to the export if they exist
-                        if tags:
-                            tag_colors = [f"{tag} ({self._get_tag_color(tag)})" for tag in tags]
-                            f.write(f"Tags: {', '.join(tag_colors)}\n")
-                        # Handle text content
                         if kind == "text" and isinstance(content, str):
                             f.write(f"Content:\n{content}\n{'-'*20}\n\n")
                             texts += 1
-                        # Handle image content
                         elif kind == "image":
-                            # For images, include both [Image] indicator and the title as the image reference
-                            image_info = f"[Image: {title}]"
-                            if isinstance(content, bytes):
-                                image_size = len(content)
-                                image_info += f" (Size: {image_size/1024:.1f} KB)"
-                            f.write(f"Content: {image_info}\n{'-'*20}\n\n")
+                            f.write(f"Content: [Image]\n{'-'*20}\n\n")
                             images.append(title)
-                        # Handle mixed content (containing both text and image)
-                        elif kind == "mixed" and isinstance(content, dict):
-                            text_part = content.get("text", "")
-                            image_data = content.get("image")
-                            
-                            # Write text part if available
-                            if text_part:
-                                f.write(f"Content (Text):\n{text_part}\n")
-                                texts += 1
-                            
-                            # Write image part if available
-                            if isinstance(image_data, bytes):
-                                image_size = len(image_data)
-                                f.write(f"Content (Image): [Image: {title}] (Size: {image_size/1024:.1f} KB)\n")
-                                images.append(title)
-                                
-                            f.write(f"{'-'*20}\n\n")
                         else:
-                            f.write(f"Content: [Unknown format]\n{'-'*20}\n\n")
+                            f.write(f"Content: [?]\n{'-'*20}\n\n")
                     else:
                         f.write(
                             f"--- Clip {filt_idx+1}/{num_save} ---\nError: Bad Index\n{'-'*20}\n\n"
@@ -4628,56 +4597,6 @@ class WinCB_Elite:
                 placeholder_text="Type to filter tags..."
             )
             filter_entry.pack(fill="x", pady=(0, 0))
-            
-            # Existing tags section
-            existing_tags_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            existing_tags_frame.pack(pady=(0, 15), padx=15, fill="x")
-            
-            ctk.CTkLabel(
-                existing_tags_frame,
-                text="Existing tags (click to use):",
-                font=("Segoe UI", 12, "bold"),
-                anchor="w"
-            ).pack(side="top", anchor="w", pady=(0, 10))
-            
-            # Create a frame for the tag buttons
-            tags_buttons_frame = ctk.CTkFrame(existing_tags_frame, fg_color="transparent")
-            tags_buttons_frame.pack(fill="x")
-            
-            # List of existing tags for the user to click
-            row_tags = 0
-            col_tags = 0
-            max_cols = 2
-            
-            sorted_tags = sorted(list(existing_tags))
-            for tag in sorted_tags:
-                color_name = self._get_tag_color(tag)
-                color_value = self.TAG_COLORS.get(color_name, self.TAG_COLORS["blue"])
-                hover_color = self._brighten_color(color_value, 0.2)
-                
-                def set_tag_name(t=tag):
-                    tag_var.set(t)
-                
-                tag_btn = ctk.CTkButton(
-                    tags_buttons_frame,
-                    text=tag,
-                    fg_color=color_value,
-                    hover_color=hover_color,
-                    text_color="#ffffff",
-                    height=28,
-                    corner_radius=14,
-                    command=set_tag_name
-                )
-                tag_btn.grid(row=row_tags, column=col_tags, padx=5, pady=3, sticky="ew")
-                
-                col_tags += 1
-                if col_tags >= max_cols:
-                    col_tags = 0
-                    row_tags += 1
-            
-            # Configure grid columns to be equal width
-            tags_buttons_frame.grid_columnconfigure(0, weight=1)
-            tags_buttons_frame.grid_columnconfigure(1, weight=1)
         
         # Tag colors section
         color_section = ctk.CTkFrame(dialog, fg_color="transparent")

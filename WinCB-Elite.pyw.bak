@@ -157,11 +157,11 @@ class WinCB_Elite:
         
         # Tag system - Color definitions
         self.TAG_COLORS = {
-            "red": "#ff4d4d",     # Brighter red
-            "blue": "#3399ff",    # Vibrant blue
-            "green": "#33cc33",   # Brighter green
-            "yellow": "#ffcc00",  # Golden yellow
-            "purple": "#cc66ff"   # Brighter purple
+            "red": "#ff6b6b",
+            "blue": "#4dabf7", 
+            "green": "#51cf66",
+            "yellow": "#ffd43b",
+            "purple": "#cc5de8"
         }
         self.current_clip_tags = []  # Tags for the currently displayed clip
         self.tag_colors = {}  # Map of tag name -> color name
@@ -273,7 +273,6 @@ class WinCB_Elite:
         # Add Tags Frame
         self.tags_frame = ctk.CTkFrame(self.top_nav, fg_color="transparent", height=35)
         self.tags_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=(0, 5))
-        self.tags_frame.grid_propagate(False)  # Prevent frame from expanding beyond its specified size
         
         # Label for tags section
         self.tags_label = ctk.CTkLabel(
@@ -286,37 +285,34 @@ class WinCB_Elite:
         self.tags_label.pack(side="left", padx=(0, 5))
         
         # Frame to hold tag buttons
-        self.tag_buttons_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent", height=30)
+        self.tag_buttons_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
         self.tag_buttons_frame.pack(side="left", fill="x", expand=True)
-        self.tag_buttons_frame.pack_propagate(False)  # Prevent frame from expanding
         
         # Buttons frame for tag management
         tag_control_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
         tag_control_frame.pack(side="right")
         
-        # Add tag button (now first position)
-        self.add_tag_btn = ctk.CTkButton(
-            tag_control_frame,
-            text="+",
-            width=28,
-            height=22,
-            font=("Segoe UI", 12, "bold"),  # Larger font for + symbol
-            command=self._show_tag_dialog
-        )
-        self.add_tag_btn.pack(side="left", padx=(0, 5))  # Add right padding
-        self._add_tooltip(self.add_tag_btn, "Add a new tag")
-        
-        # Clear tags button (now second position)
+        # Clear tags button
         self.clear_tags_btn = ctk.CTkButton(
             tag_control_frame,
             text="✕",
-            width=22,
-            height=22,
-            font=("Segoe UI", 10),
+            width=30,
+            height=24,
             command=self._clear_current_clip_tags
         )
-        self.clear_tags_btn.pack(side="left")
+        self.clear_tags_btn.pack(side="left", padx=(0, 5))
         self._add_tooltip(self.clear_tags_btn, "Clear all tags from current clip")
+        
+        # Add tag button
+        self.add_tag_btn = ctk.CTkButton(
+            tag_control_frame,
+            text="+",
+            width=30,
+            height=24,
+            command=self._show_tag_dialog
+        )
+        self.add_tag_btn.pack(side="left")
+        self._add_tooltip(self.add_tag_btn, "Add a new tag")
 
         # --- Scrollable Content Area ---
         self.scrollable = ctk.CTkScrollableFrame(
@@ -783,7 +779,6 @@ class WinCB_Elite:
                 entry = {"type": item_data["type"], "title": item_data.get("title", "")}
                 content = item_data["content"]
                 timestamp = item_data.get("timestamp", 0)
-                tags = item_data.get("tags", [])  # Load tags from the saved data
 
                 if entry["type"] == "image":
                     try:
@@ -810,7 +805,6 @@ class WinCB_Elite:
                     continue
 
                 entry["timestamp"] = timestamp
-                entry["tags"] = tags  # Add tags to the entry
                 temp_history.append(entry)
                 loaded_count += 1
 
@@ -911,7 +905,6 @@ class WinCB_Elite:
                     "type": item.get("type"),
                     "title": item.get("title", ""),
                     "timestamp": item.get("timestamp", 0),
-                    "tags": item.get("tags", []),  # Add tags to saved data
                 }
                 content = item.get("content")
 
@@ -2479,48 +2472,17 @@ class WinCB_Elite:
                         title = item.get("title", "?")
                         kind = item.get("type")
                         content = item.get("content")
-                        tags = item.get("tags", [])
-                        
                         f.write(
                             f"--- Clip {filt_idx+1}/{num_save} ---\nTitle: {title}\nType: {kind}\n"
                         )
-                        
-                        # Add tags to the export if they exist
-                        if tags:
-                            tag_colors = [f"{tag} ({self._get_tag_color(tag)})" for tag in tags]
-                            f.write(f"Tags: {', '.join(tag_colors)}\n")
-                        # Handle text content
                         if kind == "text" and isinstance(content, str):
                             f.write(f"Content:\n{content}\n{'-'*20}\n\n")
                             texts += 1
-                        # Handle image content
                         elif kind == "image":
-                            # For images, include both [Image] indicator and the title as the image reference
-                            image_info = f"[Image: {title}]"
-                            if isinstance(content, bytes):
-                                image_size = len(content)
-                                image_info += f" (Size: {image_size/1024:.1f} KB)"
-                            f.write(f"Content: {image_info}\n{'-'*20}\n\n")
+                            f.write(f"Content: [Image]\n{'-'*20}\n\n")
                             images.append(title)
-                        # Handle mixed content (containing both text and image)
-                        elif kind == "mixed" and isinstance(content, dict):
-                            text_part = content.get("text", "")
-                            image_data = content.get("image")
-                            
-                            # Write text part if available
-                            if text_part:
-                                f.write(f"Content (Text):\n{text_part}\n")
-                                texts += 1
-                            
-                            # Write image part if available
-                            if isinstance(image_data, bytes):
-                                image_size = len(image_data)
-                                f.write(f"Content (Image): [Image: {title}] (Size: {image_size/1024:.1f} KB)\n")
-                                images.append(title)
-                                
-                            f.write(f"{'-'*20}\n\n")
                         else:
-                            f.write(f"Content: [Unknown format]\n{'-'*20}\n\n")
+                            f.write(f"Content: [?]\n{'-'*20}\n\n")
                     else:
                         f.write(
                             f"--- Clip {filt_idx+1}/{num_save} ---\nError: Bad Index\n{'-'*20}\n\n"
@@ -2772,7 +2734,6 @@ class WinCB_Elite:
                             "type": item.get("type"),
                             "title": item.get("title", ""),
                             "timestamp": item.get("timestamp", 0),
-                            "tags": item.get("tags", []),  # Add tags to saved data
                         }
                         content = item.get("content")
                         if save_item["type"] == "image" and isinstance(content, bytes):
@@ -2830,7 +2791,6 @@ class WinCB_Elite:
                             "type": item_data["type"],
                             "title": item_data.get("title", ""),
                             "timestamp": item_data.get("timestamp", 0),
-                            "tags": item_data.get("tags", []),  # Add tags to saved data
                         }
                         content = item_data["content"]
                         if entry["type"] == "image":
@@ -3086,7 +3046,6 @@ class WinCB_Elite:
                         "type": item.get("type"),
                         "title": item.get("title", ""),
                         "timestamp": item.get("timestamp", 0),
-                        "tags": item.get("tags", []),  # Add tags to saved data
                     }
                     content = item.get("content")
                     if save_item["type"] == "image" and isinstance(content, bytes):
@@ -4431,100 +4390,55 @@ class WinCB_Elite:
         if not self.running:
             return
             
-        try:
-            # Clear existing tag buttons
-            for child in self.tag_buttons_frame.winfo_children():
-                child.destroy()
-                
-            # Get tags for current clip
-            if not hasattr(self, 'current_clip_tags') or self.current_clip_tags is None:
-                self.current_clip_tags = []
-                
-            if 0 <= self.current_filtered_index < len(self.filtered_history_indices):
-                original_index = self.filtered_history_indices[self.current_filtered_index]
-                if 0 <= original_index < len(self.history):
-                    clip = self.history[original_index]
-                    self.current_clip_tags = clip.get("tags", [])
-                    
-            # Create a button for each tag (up to 3 to avoid crowding)
-            max_visible_tags = 3
-            visible_tags = self.current_clip_tags[:max_visible_tags]
-                    
-            # Create a button for each tag
-            for tag in visible_tags:
-                color_name = self._get_tag_color(tag)
-                color_value = self.TAG_COLORS.get(color_name, self.TAG_COLORS["blue"])
-                
-                # Create frame to hold the tag and remove button
-                tag_frame = ctk.CTkFrame(self.tag_buttons_frame, fg_color="transparent")
-                tag_frame.pack(side="left", padx=(0, 5))
-                
-                # Make colors more vibrant
-                hover_color = self._brighten_color(color_value, 0.2)
-                
-                # Tag button with appropriate color
-                tag_btn = ctk.CTkButton(
-                    tag_frame,
-                    text=tag,
-                    width=0,  # Auto-width
-                    height=22,  # Reduced height
-                    fg_color=color_value,
-                    hover_color=hover_color,
-                    corner_radius=12,
-                    text_color="#ffffff",
-                    font=("Segoe UI", 10),  # Smaller font
-                    command=lambda t=tag: self._filter_by_tag(t)
-                )
-                tag_btn.pack(side="left")
-                self._add_tooltip(tag_btn, f"Click to filter by '{tag}' tag")
-                
-                # Remove tag button (x)
-                remove_btn = ctk.CTkButton(
-                    tag_frame,
-                    text="×",
-                    width=22,  # Reduced width
-                    height=22,  # Reduced height
-                    fg_color=color_value,
-                    hover_color=hover_color,
-                    corner_radius=12,
-                    font=("Segoe UI", 10),  # Smaller font
-                    command=lambda t=tag: self._remove_tag_from_current_clip(t)
-                )
-                remove_btn.pack(side="left", padx=(1, 0))
-                
-            # If there are more tags than we're showing, add an indicator
-            if len(self.current_clip_tags) > max_visible_tags:
-                more_count = len(self.current_clip_tags) - max_visible_tags
-                more_label = ctk.CTkLabel(
-                    self.tag_buttons_frame,
-                    text=f"+{more_count} more",
-                    text_color="#888888",
-                    font=("Segoe UI", 11, "italic")
-                )
-                more_label.pack(side="left", padx=(5, 0))
-                self._add_tooltip(more_label, "There are more tags on this clip")
-                
-        except Exception as e:
-            print(f"Error updating tag display: {e}")
-            traceback.print_exc()
-
-    # Add this helper function for brightening colors
-    def _brighten_color(self, hex_color, factor=0.2):
-        """Brighten a hex color by the given factor."""
-        try:
-            # Convert hex to RGB
-            hex_color = hex_color.lstrip('#')
-            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        # Clear existing tag buttons
+        for child in self.tag_buttons_frame.winfo_children():
+            child.destroy()
             
-            # Brighten
-            brightened = tuple(min(255, int(c + (255 - c) * factor)) for c in rgb)
+        # Get tags for current clip
+        if not hasattr(self, 'current_clip_tags') or self.current_clip_tags is None:
+            self.current_clip_tags = []
             
-            # Convert back to hex
-            return f"#{brightened[0]:02x}{brightened[1]:02x}{brightened[2]:02x}"
-        except Exception as e:
-            print(f"Error brightening color {hex_color}: {e}")
-            return hex_color
-
+        if 0 <= self.current_filtered_index < len(self.filtered_history_indices):
+            original_index = self.filtered_history_indices[self.current_filtered_index]
+            if 0 <= original_index < len(self.history):
+                clip = self.history[original_index]
+                self.current_clip_tags = clip.get("tags", [])
+                
+        # Create a button for each tag
+        for tag in self.current_clip_tags:
+            color_name = self._get_tag_color(tag)
+            color_value = self.TAG_COLORS.get(color_name, self.TAG_COLORS["blue"])
+            
+            # Create frame to hold the tag and remove button
+            tag_frame = ctk.CTkFrame(self.tag_buttons_frame, fg_color="transparent")
+            tag_frame.pack(side="left", padx=(0, 5))
+            
+            # Tag button with appropriate color
+            tag_btn = ctk.CTkButton(
+                tag_frame,
+                text=tag,
+                width=0,  # Auto-width
+                height=24,
+                fg_color=color_value,
+                corner_radius=12,
+                text_color="#ffffff",
+                command=lambda t=tag: self._filter_by_tag(t)
+            )
+            tag_btn.pack(side="left")
+            self._add_tooltip(tag_btn, f"Click to filter by '{tag}' tag")
+            
+            # Remove tag button (x)
+            remove_btn = ctk.CTkButton(
+                tag_frame,
+                text="×",
+                width=24,
+                height=24,
+                fg_color=color_value,
+                corner_radius=12,
+                command=lambda t=tag: self._remove_tag_from_current_clip(t)
+            )
+            remove_btn.pack(side="left", padx=(1, 0))
+    
     def _filter_by_tag(self, tag):
         """Filters history to show only clips with the specified tag."""
         if not tag:
@@ -4565,7 +4479,7 @@ class WinCB_Elite:
         # Create dialog
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Add Tag")
-        dialog.geometry("462x560")  # Increased size by 40%
+        dialog.geometry("300x200")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.focus_set()
@@ -4573,126 +4487,18 @@ class WinCB_Elite:
         # Make dialog modal
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
         
-        # Tag entry with better labeling
-        entry_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        entry_frame.pack(pady=(15, 15), padx=15, fill="x")
-        
-        # Bold label for "New Tag Name:"
-        new_tag_label = ctk.CTkLabel(
-            entry_frame, 
-            text="New Tag Name:", 
-            font=("Segoe UI", 12, "bold"),
-            width=120,
-            anchor="w"
-        )
-        new_tag_label.pack(side="top", anchor="w", pady=(0, 5))
-        
-        # Tag name entry below the label, full width
+        # Tag entry
+        ctk.CTkLabel(dialog, text="Tag name:").pack(pady=(10, 0), padx=10, anchor="w")
         tag_var = ctk.StringVar()
-        tag_entry = ctk.CTkEntry(
-            entry_frame, 
-            textvariable=tag_var, 
-            width=432,  # Full width of dialog minus padding
-            height=30   # Taller for better visibility
-        )
-        tag_entry.pack(fill="x", pady=(0, 0))
+        tag_entry = ctk.CTkEntry(dialog, textvariable=tag_var, width=280)
+        tag_entry.pack(pady=(5, 10), padx=10)
         
-        # Get all existing tags
-        existing_tags = set()
-        for item in self.history:
-            if "tags" in item:
-                existing_tags.update(item.get("tags", []))
-        
-        if existing_tags:
-            # Add a search box for filtering tags using same structure as name field
-            filter_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            filter_frame.pack(pady=(0, 15), padx=15, fill="x")
-            
-            # Match the label structure of the New Tag Name field
-            filter_label = ctk.CTkLabel(
-                filter_frame, 
-                text="Filter Tags:", 
-                font=("Segoe UI", 12, "bold"),
-                width=120,
-                anchor="w"
-            )
-            filter_label.pack(side="top", anchor="w", pady=(0, 5))
-            
-            # Filter entry with same structure as name entry
-            filter_var = ctk.StringVar()
-            filter_entry = ctk.CTkEntry(
-                filter_frame,
-                textvariable=filter_var, 
-                width=432,
-                height=30,
-                placeholder_text="Type to filter tags..."
-            )
-            filter_entry.pack(fill="x", pady=(0, 0))
-            
-            # Existing tags section
-            existing_tags_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            existing_tags_frame.pack(pady=(0, 15), padx=15, fill="x")
-            
-            ctk.CTkLabel(
-                existing_tags_frame,
-                text="Existing tags (click to use):",
-                font=("Segoe UI", 12, "bold"),
-                anchor="w"
-            ).pack(side="top", anchor="w", pady=(0, 10))
-            
-            # Create a frame for the tag buttons
-            tags_buttons_frame = ctk.CTkFrame(existing_tags_frame, fg_color="transparent")
-            tags_buttons_frame.pack(fill="x")
-            
-            # List of existing tags for the user to click
-            row_tags = 0
-            col_tags = 0
-            max_cols = 2
-            
-            sorted_tags = sorted(list(existing_tags))
-            for tag in sorted_tags:
-                color_name = self._get_tag_color(tag)
-                color_value = self.TAG_COLORS.get(color_name, self.TAG_COLORS["blue"])
-                hover_color = self._brighten_color(color_value, 0.2)
-                
-                def set_tag_name(t=tag):
-                    tag_var.set(t)
-                
-                tag_btn = ctk.CTkButton(
-                    tags_buttons_frame,
-                    text=tag,
-                    fg_color=color_value,
-                    hover_color=hover_color,
-                    text_color="#ffffff",
-                    height=28,
-                    corner_radius=14,
-                    command=set_tag_name
-                )
-                tag_btn.grid(row=row_tags, column=col_tags, padx=5, pady=3, sticky="ew")
-                
-                col_tags += 1
-                if col_tags >= max_cols:
-                    col_tags = 0
-                    row_tags += 1
-            
-            # Configure grid columns to be equal width
-            tags_buttons_frame.grid_columnconfigure(0, weight=1)
-            tags_buttons_frame.grid_columnconfigure(1, weight=1)
-        
-        # Tag colors section
-        color_section = ctk.CTkFrame(dialog, fg_color="transparent")
-        color_section.pack(pady=(5, 15), padx=15, fill="x")
-        
-        ctk.CTkLabel(
-            color_section, 
-            text="Tag color:", 
-            font=("Segoe UI", 12, "bold"),
-            anchor="w"
-        ).pack(pady=(0, 10), anchor="w")
+        # Tag colors
+        ctk.CTkLabel(dialog, text="Tag color:").pack(pady=(0, 5), padx=10, anchor="w")
         
         # Color selection frame
-        colors_frame = ctk.CTkFrame(color_section, fg_color="transparent")
-        colors_frame.pack(pady=(0, 10), fill="x")
+        colors_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        colors_frame.pack(pady=(0, 10), padx=10)
         
         # Color selection
         color_var = ctk.StringVar(value="blue")  # Default color
@@ -4708,7 +4514,7 @@ class WinCB_Elite:
                 hover_color=color_value,
                 border_color=color_value
             )
-            color_btn.grid(row=i//3, column=i%3, padx=8, pady=5, sticky="w")
+            color_btn.grid(row=i//3, column=i%3, padx=5, pady=2, sticky="w")
         
         # Add button to add the tag
         def add_tag():
@@ -4729,17 +4535,17 @@ class WinCB_Elite:
             
         # Buttons
         buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        buttons_frame.pack(pady=(15, 20), fill="x", padx=15)
+        buttons_frame.pack(pady=(10, 10), fill="x")
         
         ctk.CTkButton(
-            buttons_frame, text="Cancel", width=120, height=36,
+            buttons_frame, text="Cancel", width=100, 
             command=dialog.destroy
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(10, 5))
         
         ctk.CTkButton(
-            buttons_frame, text="Add Tag", width=120, height=36,
+            buttons_frame, text="Add Tag", width=100,
             command=add_tag
-        ).pack(side="right")
+        ).pack(side="right", padx=(5, 10))
         
         # Center dialog
         self._center_toplevel(dialog)
