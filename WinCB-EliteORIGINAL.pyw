@@ -1,7 +1,7 @@
-# WinCB-Elite_part1.py
-# Part 1 of 5 for WinCB-Elite.pyw
-# Contains imports, configuration, and WinCB-Elite class initialization up to _setup_sidebar_buttons
-# To combine: Concatenate part1 + part2 + part3 + part4 + part5 into WinCB-Elite.pyw
+# Clippy_part1.py
+# Part 1 of 5 for Clippy.pyw
+# Contains imports, configuration, and Clippy class initialization up to _setup_sidebar_buttons
+# To combine: Concatenate part1 + part2 + part3 + part4 + part5 into Clippy.pyw
 
 # -*- coding: utf-8 -*-
 import customtkinter as ctk
@@ -24,7 +24,7 @@ import ctypes  # For DPI awareness
 from pathlib import Path  # Added for better path handling
 
 # --- Configuration ---
-APP_NAME = "WinCB-Elite (Nitro)"
+APP_NAME = "Clippy (Nitro)"
 HISTORY_LIMIT = 50
 AUTOSAVE_DELAY_MS = 1500  # Delay for auto-saving text edits (1.5 seconds)
 MAIN_BG_COLOR = "#2b2b2b"  # Main dark background color
@@ -35,14 +35,13 @@ HIGHLIGHT_COLOR = "cyan"  # Highlight border for focused text widget
 # --- Path Configuration ---
 # Use user's home directory for persistent data
 try:
-    APP_DATA_DIR = Path.home() / "WinCB-Elite"
+    APP_DATA_DIR = Path.home() / "Clippy"
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    HISTORY_FILE_PATH = APP_DATA_DIR / "wincb-elite_history.json"
-    CONFIG_FILE_PATH = APP_DATA_DIR / "wincb-elite_config.json"
+    HISTORY_FILE_PATH = APP_DATA_DIR / "clippy_history.json"
     BATCH_SAVE_DIR = APP_DATA_DIR
     print(f"Using data directory: {APP_DATA_DIR}")
 except Exception as path_e:
-    print(f"FATAL: Could not create or access data directory: {Path.home() / 'WinCB-Elite'}")
+    print(f"FATAL: Could not create or access data directory: {Path.home() / 'Clippy'}")
     print(f"Error: {path_e}")
     # Fallback to script directory if home directory fails (less ideal for EXEs)
     try:
@@ -50,8 +49,7 @@ except Exception as path_e:
     except NameError:
         script_dir = Path(os.getcwd())
     APP_DATA_DIR = script_dir
-    HISTORY_FILE_PATH = APP_DATA_DIR / "wincb-elite_history.json"
-    CONFIG_FILE_PATH = APP_DATA_DIR / "wincb-elite_config.json"
+    HISTORY_FILE_PATH = APP_DATA_DIR / "clippy_history.json"
     BATCH_SAVE_DIR = APP_DATA_DIR
     print(f"Warning: Falling back to script directory for data: {APP_DATA_DIR}")
 
@@ -74,11 +72,11 @@ except ImportError:
     HAS_CTK_TOOLTIP = False
 
 
-class WinCB_Elite:
+class Clippy:
     """A clipboard manager application with history, text/image support, and system tray integration."""
 
     def __init__(self):
-        """Initialize the WinCB-Elite application window and components."""
+        """Initialize the Clippy application window and components."""
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
@@ -86,29 +84,6 @@ class WinCB_Elite:
         self.root.title(APP_NAME)
         self.root.geometry("900x700+650+0")
         self.root.minsize(750, 550)
-        
-        # Set window icon - try custom icon from config first, then fallback to default
-        try:
-            # First check if we have a saved custom icon in config
-            self._load_config()  # Make sure config is loaded first
-            custom_icon_path = self.config.get("custom_icon_path")
-            
-            if custom_icon_path and os.path.exists(custom_icon_path):
-                # Use previously selected custom icon
-                print(f"Using previously selected icon: {custom_icon_path}")
-                try:
-                    self.root.iconbitmap(custom_icon_path)
-                except Exception as custom_err:
-                    print(f"Error loading custom icon: {custom_err}")
-                    # If custom icon fails, fall back to default
-                    self.root.iconbitmap("icon.ico")
-            else:
-                # No custom icon, use default
-                self.root.iconbitmap("icon.ico")
-        except Exception:
-            # If all icon attempts fail, silently continue - the app is more important
-            pass
-        
         self.root.resizable(True, True)
         self.root.lift()
         self.root.attributes("-topmost", True)
@@ -138,9 +113,6 @@ class WinCB_Elite:
         self.current_clip_modified = False
         self.icon = None
         self.icon_thread = None
-        self.additional_clipboard = None  # Stores additional copied content
-        self.in_progress_clip = {"text": "", "images": []}  # In-progress clip construction
-        self.click_outside_handler_id = None # For managing context menu click-outside binding
 
         # --- Main Layout ---
         self.master_frame = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -188,17 +160,6 @@ class WinCB_Elite:
         self.search_entry.grid(row=0, column=0, padx=(0, 5), pady=5, sticky="w")
         self.search_entry.bind("<KeyRelease>", self._on_search_change)
         self._add_tooltip(self.search_entry, "Search clip titles and text content")
-
-        # Add buffer status indicator
-        self.buffer_status_var = ctk.StringVar(value="Buffer: Empty")
-        self.buffer_status_label = ctk.CTkLabel(
-            self.top_nav, 
-            textvariable=self.buffer_status_var,
-            text_color="#00cc00",
-            font=("Segoe UI", 10)
-        )
-        self.buffer_status_label.grid(row=0, column=2, padx=5, pady=5, sticky="e")
-        self._add_tooltip(self.buffer_status_label, "Current buffer status (Ctrl+Shift+C to copy, Ctrl+Shift+V to paste)")
 
         self.title_frame = ctk.CTkFrame(self.top_nav, fg_color="transparent")
         self.title_frame.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
@@ -264,63 +225,13 @@ class WinCB_Elite:
         self._setup_sidebar_buttons()
 
         # --- Initialization ---
-        # Config was already loaded for icon, but we'll ensure everything is loaded
-        if not hasattr(self, 'config'):
-            self._load_config()  # Load config before history
         self._load_history()
         self._filter_and_show()
         self.root.after(500, self.poll_clipboard)
         self.icon_thread = threading.Thread(target=self._setup_tray, daemon=True)
         self.icon_thread.start()
 
-        # Ensure context menu is initialized and bound correctly
-        self.context_menu = ctk.CTkFrame(self.root, fg_color="gray25")
-        self.context_menu.copy_btn = ctk.CTkButton(
-            self.context_menu,
-            text="Copy Active Clip",
-            command=self.copy_active_clip_to_buffer,
-            width=220 
-        )
-        self.context_menu.paste_btn = ctk.CTkButton(
-            self.context_menu,
-            text="Paste from Clipboard",
-            command=self.paste_from_buffer_to_in_progress_clip,
-            width=220
-        )
-        self.context_menu.clear_btn = ctk.CTkButton(
-            self.context_menu,
-            text="Clear Clipboard",
-            command=self.clear_additional_buffer,
-            width=220
-        )
-        self.context_menu.copy_btn.pack(pady=2)
-        self.context_menu.paste_btn.pack(pady=2)
-        self.context_menu.clear_btn.pack(pady=2)
-        self.context_menu.place_forget()
-
-        # Bind right-click events to show context menu
-        self.textbox.bind("<Button-3>", self.show_context_menu)
-        self.img_label.bind("<Button-3>", self.show_context_menu)
-
-        self.root.bind("<Control-Shift-c>", lambda e: self.copy_focused_content_to_buffer())
-        self.root.bind("<Control-Shift-C>", lambda e: self.copy_focused_content_to_buffer())
-        self.root.bind("<Control-Shift-v>", lambda e: self.paste_from_buffer_to_in_progress_clip())
-        self.root.bind("<Control-Shift-V>", lambda e: self.paste_from_buffer_to_in_progress_clip())
-        
-        # New bindings for in-progress clip
-        self.root.bind("<Control-n>", lambda e: self.start_new_clip_from_selection())
-        self.root.bind("<Control-a>", lambda e: self.add_selection_to_in_progress_clip())
-        self.root.bind("<Control-A>", lambda e: self.add_selection_to_in_progress_clip())
-        self.root.bind("<Control-s>", lambda e: self.save_in_progress_clip())
-        self.root.bind("<Control-S>", lambda e: self.save_in_progress_clip())
-
-        # Context-aware copy/paste bindings
-        self.root.bind("<Control-c>", lambda e: self._context_aware_copy(e))
-        self.root.bind("<Control-C>", lambda e: self._context_aware_copy(e))
-        self.root.bind("<Control-v>", lambda e: self._context_aware_paste(e))
-        self.root.bind("<Control-V>", lambda e: self._context_aware_paste(e))
-
-        print("WinCB-Elite UI Initialized.")
+        print("Clippy UI Initialized.")
         self.root.mainloop()
 
     # --- Setup Helpers ---
@@ -399,7 +310,7 @@ class WinCB_Elite:
         self.copy_clip_btn.pack(pady=5, padx=10, anchor="n")
         self._add_tooltip(
             self.copy_clip_btn,
-            "Copy the entire current clip back to the system clipboard",
+            "Copy the entire current clip back to the system clipboard (Ctrl+C)",
         )
         self.titles_btn = ctk.CTkButton(
             self.sidebar_frame,
@@ -429,14 +340,14 @@ class WinCB_Elite:
             command=self._hide_window,
         )
         self.hide_btn.pack(pady=5, padx=10, anchor="n")
-        self._add_tooltip(self.hide_btn, "Minimize WinCB-Elite to the system tray")
+        self._add_tooltip(self.hide_btn, "Minimize Clippy to the system tray")
 
         self._add_sidebar_separator("File Management")
         # Set width to match the longest button text ("Save/Restore Clip Group")
         bottom_button_width = 160  # Matches "Save/Restore Clip Group"
         self.save_batch_btn = ctk.CTkButton(
             self.sidebar_frame,
-            text="ClipGroup Batch Export",
+            text="Export Data",
             width=bottom_button_width,
             height=30,
             command=self._prompt_and_save_batch,
@@ -444,7 +355,7 @@ class WinCB_Elite:
         self.save_batch_btn.pack(pady=5, padx=10, anchor="n")
         self._add_tooltip(
             self.save_batch_btn,
-            "Export currently filtered clips to a text file\n(Choose location when saving)",
+            f"Export currently filtered clips to a text file in\n{BATCH_SAVE_DIR}",
         )
         self.save_restore_btn = ctk.CTkButton(
             self.sidebar_frame,
@@ -458,35 +369,6 @@ class WinCB_Elite:
             self.save_restore_btn,
             "Save or load clip groups as JSON files for project switching",
         )
-        
-        # Add button to change app icon
-        self.change_icon_btn = ctk.CTkButton(
-            self.sidebar_frame,
-            text="Change App Icon",
-            width=bottom_button_width,
-            height=30,
-            command=self._change_app_icon,
-        )
-        self.change_icon_btn.pack(pady=5, padx=10, anchor="n")
-        self._add_tooltip(
-            self.change_icon_btn,
-            "Change the application icon for system tray",
-        )
-
-        # Optional: Add Save In-Progress Clip button (can be hidden for simpler interface)
-        if False:  # Set to True if you want this advanced feature
-            self.save_in_progress_btn = ctk.CTkButton(
-                self.sidebar_frame,
-                text="Save In-Progress Clip",
-                width=bottom_button_width,
-                height=30,
-                command=self.save_in_progress_clip,
-            )
-            self.save_in_progress_btn.pack(pady=5, padx=10, anchor="n")
-            self._add_tooltip(
-                self.save_in_progress_btn,
-                "Save the current in-progress clip to history",
-            )
 
         # Buttons at the very bottom, matching the width, with Close below Pause Capture
         # Create a frame to hold the bottom buttons in a vertical stack
@@ -513,7 +395,7 @@ class WinCB_Elite:
             hover_color="#A00000",
         )
         self.close_btn.pack()
-        self._add_tooltip(self.close_btn, "Close WinCB-Elite (confirmation required)")
+        self._add_tooltip(self.close_btn, "Close Clippy (confirmation required)")
 
         # --- Key Bindings ---
         self.root.bind("<Alt-Left>", lambda e: self.prev_clip())
@@ -529,6 +411,8 @@ class WinCB_Elite:
                 self.delete_current_clip()
 
         self.root.bind("<Delete>", delete_clip_if_no_focus)
+        self.root.bind("<Control-c>", lambda e: self.copy_clip_to_clipboard())
+        self.root.bind("<Control-C>", lambda e: self.copy_clip_to_clipboard())
         self.root.bind("<Control-f>", lambda e: self.search_entry.focus_set())
         self.root.bind("<Control-F>", lambda e: self.search_entry.focus_set())
 
@@ -537,10 +421,10 @@ class WinCB_Elite:
         self._finalize_text_edit()
         self._filter_and_show()
 
-    # WinCB-Elite_part2.py
-    # Part 2 of 5 for WinCB-Elite.pyw
+    # Clippy_part2.py
+    # Part 2 of 5 for Clippy.pyw
     # Contains sidebar helpers and history persistence methods
-    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into WinCB-Elite.pyw
+    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into Clippy.pyw
 
     def _add_sidebar_separator(self, label_text):
         """Add a separator with a label to the sidebar."""
@@ -701,62 +585,6 @@ class WinCB_Elite:
             print(f"Error loading history from {HISTORY_FILE_PATH}: {e}")
             traceback.print_exc()
             self._backup_corrupted_history()
-            
-    def _load_config(self):
-        """Load application configuration from JSON file."""
-        self.config = {
-            "custom_icon_path": None  # Default: no custom icon
-        }
-        
-        if not CONFIG_FILE_PATH.exists():
-            print(f"Config file not found, using defaults: {CONFIG_FILE_PATH}")
-            return
-            
-        try:
-            with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
-                saved_config = json.load(f)
-                
-            if isinstance(saved_config, dict):
-                # Update config with saved values
-                self.config.update(saved_config)
-                print(f"Loaded configuration from {CONFIG_FILE_PATH}")
-                
-                # Validate custom icon path if one is set
-                if self.config.get("custom_icon_path"):
-                    icon_path = self.config["custom_icon_path"]
-                    if not os.path.exists(icon_path):
-                        print(f"Warning: Custom icon not found at {icon_path}")
-                        self.config["custom_icon_path"] = None
-            else:
-                print("Warning: Config file does not contain a dictionary.")
-                
-        except json.JSONDecodeError as e:
-            print(f"Error decoding config file: {CONFIG_FILE_PATH} - {e}")
-        except Exception as e:
-            print(f"Error loading config from {CONFIG_FILE_PATH}: {e}")
-            traceback.print_exc()
-            
-    def _save_config(self):
-        """Save application configuration to JSON file."""
-        if not self.running:
-            return
-            
-        try:
-            temp_file_path = CONFIG_FILE_PATH.with_suffix(".tmp")
-            with open(temp_file_path, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
-                
-            os.replace(temp_file_path, CONFIG_FILE_PATH)
-            print(f"Saved configuration to {CONFIG_FILE_PATH}")
-            
-        except Exception as e:
-            print(f"Error saving config to {CONFIG_FILE_PATH}: {e}")
-            traceback.print_exc()
-            try:
-                if temp_file_path.exists():
-                    temp_file_path.unlink()
-            except Exception as te:
-                print(f"Warning: Could not remove temporary config file {temp_file_path}: {te}")
 
     def _backup_corrupted_history(self):
         """Backup corrupted history file to the APP_DATA_DIR."""
@@ -818,10 +646,10 @@ class WinCB_Elite:
                     f"Warning: Could not remove temporary save file {temp_file_path}: {te}"
                 )
 
-    # WinCB-Elite_part3.py
-    # Part 3 of 5 for WinCB-Elite.pyw
+    # Clippy_part3.py
+    # Part 3 of 5 for Clippy.pyw
     # Contains clipboard polling and filtering methods
-    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into WinCB-Elite.pyw
+    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into Clippy.pyw
 
     # --- Clipboard Polling & History Management ---
 
@@ -843,7 +671,7 @@ class WinCB_Elite:
             print("Clipboard capture RESUMED.")
 
     def poll_clipboard(self):
-        """Poll system clipboard for new content with improved error handling."""
+        """Poll system clipboard for new content."""
         if not self.running:
             return
 
@@ -854,11 +682,7 @@ class WinCB_Elite:
                 self.root.after(1000, self.poll_clipboard)
             return
 
-        # More robust ignore period check
         if now < self.ignore_clip_until:
-            remaining = self.ignore_clip_until - now
-            if remaining > 0.5:
-                print(f"DEBUG: Ignoring clipboard for {remaining:.2f}s more")
             if self.running:
                 self.root.after(200, self.poll_clipboard)
             return
@@ -868,23 +692,8 @@ class WinCB_Elite:
         clip_data = None
 
         try:
-            # Use a more robust approach with retries
-            max_retries = 3
-            retry_count = 0
-            
-            while retry_count < max_retries:
-                try:
-                    win32clipboard.OpenClipboard()
-                    break
-                except Exception as e:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        print(f"DEBUG: Failed to open clipboard after {max_retries} attempts: {e}")
-                        if self.running:
-                            self.root.after(1000, self.poll_clipboard)
-                        return
-                    time.sleep(0.1)  # Short delay before retry
-            
+            win32clipboard.OpenClipboard()
+
             has_unicode = win32clipboard.IsClipboardFormatAvailable(
                 win32clipboard.CF_UNICODETEXT
             )
@@ -898,18 +707,18 @@ class WinCB_Elite:
                             win32clipboard.CF_UNICODETEXT
                         )
                     except TypeError as te:
-                        print(f"DEBUG: CF_UNICODETEXT failed ({te}), trying CF_TEXT.")
+                        print(f"Warning: CF_UNICODETEXT failed ({te}), trying CF_TEXT.")
                         if has_text:
                             try:
                                 text_data = win32clipboard.GetClipboardData(
                                     win32clipboard.CF_TEXT
                                 ).decode("mbcs")
                             except Exception as decode_err:
-                                print(f"DEBUG: CF_TEXT decode failed: {decode_err}")
+                                print(f"Warning: CF_TEXT decode failed: {decode_err}")
                         else:
                             text_data = None
                     except Exception as e:
-                        print(f"DEBUG: Error getting CF_UNICODETEXT: {e}")
+                        print(f"Error getting CF_UNICODETEXT: {e}")
                         text_data = None
                 elif has_text:
                     try:
@@ -917,20 +726,18 @@ class WinCB_Elite:
                             win32clipboard.CF_TEXT
                         ).decode("mbcs")
                     except Exception as e:
-                        print(f"DEBUG: Error getting/decoding CF_TEXT: {e}")
+                        print(f"Error getting/decoding CF_TEXT: {e}")
 
                 if (
                     text_data is not None
                     and text_data.strip()
                     and text_data != self.last_clip_text
                 ):
-                    # Avoid excessively long text clips
                     if len(text_data) > 500_000:
                         print(
-                            f"DEBUG: Skipped excessively long text clip ({len(text_data)} chars)"
+                            f"Skipped excessively long text clip ({len(text_data)} chars)"
                         )
                     else:
-                        print(f"DEBUG: New text detected ({len(text_data)} chars)")
                         self.last_clip_text = text_data
                         self.last_clip_img_data = None
                         new_clip_found = True
@@ -943,14 +750,21 @@ class WinCB_Elite:
                     if image_data:  # Check if we got valid data first
                         if image_data != self.last_clip_img_data:
                             # Only print detected when it's actually NEW
-                            print(f"DEBUG: New image data detected: {len(image_data)} bytes")
+                            print(f"New image data detected: {len(image_data)} bytes")
                             self.last_clip_img_data = image_data
-                            self.last_clip_text = None  # Important to clear the other type
+                            self.last_clip_text = (
+                                None  # Important to clear the other type
+                            )
                             new_clip_found = True
                             clip_type = "image"
                             clip_data = image_data
+                        # else:
+                        # You probably don't need the "unchanged" message printed repeatedly.
+                        # If you want it for debugging, uncomment the next line.
+                        # print("Image data unchanged.")
+                        # pass # No action needed if data is the same
                 except Exception as e:
-                    print(f"DEBUG: Error getting CF_DIB data: {e}")
+                    print(f"Error getting CF_DIB data: {e}")
                     traceback.print_exc()
 
             win32clipboard.CloseClipboard()
@@ -961,21 +775,21 @@ class WinCB_Elite:
                     log_preview = clip_data[:60].replace("\n", "\\n").replace(
                         "\r", ""
                     ) + ("..." if len(clip_data) > 60 else "")
-                    print(f"DEBUG: Captured text: {log_preview}")
+                    print(f"Captured text: {log_preview}")
                 elif clip_type == "image":
-                    print(f"DEBUG: Captured image ({len(clip_data)} bytes)")
+                    print(f"Captured image ({len(clip_data)} bytes)")
                 action = lambda ct=clip_type, cd=clip_data: self._add_to_history(ct, cd)
                 self.root.after(0, action)
 
         except win32clipboard.error as e:
             if e.winerror != 5:
-                print(f"DEBUG: Clipboard access error (winerror {e.winerror}): {e}")
+                print(f"Clipboard access error (winerror {e.winerror}): {e}")
             try:
                 win32clipboard.CloseClipboard()
             except:
                 pass
         except Exception as e:
-            print(f"DEBUG: Error during clipboard polling: {e}")
+            print(f"Error during clipboard polling: {e}")
             traceback.print_exc()
             try:
                 win32clipboard.CloseClipboard()
@@ -987,11 +801,9 @@ class WinCB_Elite:
 
     def _add_to_history(self, data_type, data, is_from_selection=False):
         """Adds new clipboard content or selection to history."""
-        print(f"DEBUG: _add_to_history called with type={data_type}, data_type={type(data)}, is_from_selection={is_from_selection}")
-        
         if not self.running or data is None:
             print(
-                f"DEBUG: Failed to add to history: running={self.running}, data={data is None}"
+                f"Failed to add to history: running={self.running}, data={data is None}"
             )
             return
 
@@ -1010,7 +822,7 @@ class WinCB_Elite:
             if current_time - last_ts < 0.8:
                 is_duplicate = True
                 print(
-                    f"DEBUG: Skipped: Too soon after last capture ({current_time - last_ts:.2f}s)"
+                    f"Skipped: Too soon after last capture ({current_time - last_ts:.2f}s)"
                 )
             elif data_type == last_entry.get("type"):
                 if (
@@ -1020,14 +832,14 @@ class WinCB_Elite:
                 ):
                     if data.strip() == last_entry["content"].strip():
                         is_duplicate = True
-                        print("DEBUG: Skipped: Duplicate text content")
+                        print("Skipped: Duplicate text content")
                 elif (
                     data_type == "image"
                     and isinstance(data, bytes)
                     and data == last_entry.get("content")
                 ):
                     is_duplicate = True
-                    print("DEBUG: Skipped: Duplicate image content")
+                    print("Skipped: Duplicate image content")
 
         if is_duplicate:
             return
@@ -1040,16 +852,15 @@ class WinCB_Elite:
                 new_entry["title"] = (
                     f"Image_{timestamp_str}_{size_str}"  # More descriptive prefix
                 )
-                print(f"DEBUG: Image title generated: {new_entry['title']}")
+                print(f"Image title generated: {new_entry['title']}")
             except Exception as e:
-                print(f"DEBUG: Failed to process image for title: {e}")
+                print(f"Failed to process image for title: {e}")
                 traceback.print_exc()
                 new_entry["title"] = f"Image_{time.strftime('%Y%m%d_%H%M%S')}_[ERR]"
-                
         elif data_type == "text" and isinstance(data, str):
             stripped_data = data.strip()
             if not stripped_data:
-                print("DEBUG: Skipped empty text entry.")
+                print("Skipped empty text entry.")
                 return
             first_line = stripped_data.split("\n", 1)[0]
             max_title_len = 60  # Increased to capture more context
@@ -1059,51 +870,13 @@ class WinCB_Elite:
             )
             # Remove trailing periods or ellipses for clarity
             new_entry["title"] = new_entry["title"].rstrip(".").rstrip("...")
-            print(f"DEBUG: Text title generated: {new_entry['title']}")
-            
-        elif data_type == "mixed" and isinstance(data, dict):
-            # Handle mixed type (dict with text and image keys)
-            print(f"DEBUG: Processing mixed type with keys: {list(data.keys())}")
-            
-            # Validate mixed content structure
-            if not ('text' in data or 'image' in data):
-                print(f"DEBUG: Invalid mixed content structure: {data.keys()}")
-                return
-                
-            text_content = data.get('text', '')
-            if text_content:
-                if not isinstance(text_content, str):
-                    print(f"DEBUG: Mixed clip has invalid text type: {type(text_content)}")
-                    text_content = str(text_content)
-                    
-                # Generate title from text content
-                first_line = text_content.strip().split("\n", 1)[0]
-                max_title_len = 50
-                title = re.sub(r"\s+", " ", first_line).strip()
-                new_entry["title"] = (
-                    (title[:max_title_len] + "...") if len(title) > max_title_len else title
-                )
-                # Add image indicator if it has an image
-                if 'image' in data and data['image']:
-                    new_entry["title"] = f"[Mixed] {new_entry['title']}"
-                new_entry["title"] = new_entry["title"].rstrip(".").rstrip("...")
-            else:
-                # No text, just use timestamp with mixed indicator
-                timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-                new_entry["title"] = f"Mixed_{timestamp_str}"
-                
-            print(f"DEBUG: Mixed title generated: {new_entry['title']}")
-            
         else:
             print(
-                f"DEBUG-ERROR: Invalid data type '{data_type}' or data provided to _add_to_history."
+                f"Warning: Invalid data type '{data_type}' or data provided to _add_to_history."
             )
             return
 
-        print(f"DEBUG: Successfully created new entry with title: {new_entry['title']}")
-        
         if len(self.history) >= HISTORY_LIMIT:
-            print(f"DEBUG: History limit reached ({HISTORY_LIMIT}), removing oldest entry")
             self.history.pop()
 
         self.history.insert(0, new_entry)
@@ -1118,16 +891,14 @@ class WinCB_Elite:
             try:
                 if search_term in new_entry["title"].lower():
                     matches_search = True
-                    print(f"DEBUG: New entry title matches search: '{search_term}'")
                 elif (
                     new_entry["type"] == "text"
                     and search_term in new_entry["content"].lower()
                 ):
                     matches_search = True
-                    print(f"DEBUG: New entry text content matches search: '{search_term}'")
             except Exception as search_check_err:
                 print(
-                    f"DEBUG-ERROR: Error checking if new item matches search: {search_check_err}"
+                    f"Warning: Error checking if new item matches search: {search_check_err}"
                 )
 
             if not matches_search:
@@ -1135,7 +906,7 @@ class WinCB_Elite:
                 self._filter_history()
                 self._update_page_label()
                 print(
-                    "DEBUG: New item added but doesn't match current filter. Display not changed."
+                    "New item added but doesn't match current filter. Display not changed."
                 )
 
         if should_update_display_fully:
@@ -1235,10 +1006,10 @@ class WinCB_Elite:
         except Exception as e:
             print(f"Warning: Failed to update page label: {e}")
 
-    # WinCB-Elite_part4.py
-    # Part 4 of 5 for WinCB-Elite.pyw
+    # Clippy_part4.py
+    # Part 4 of 5 for Clippy.pyw
     # Contains display, text editing, button actions, and titles modal methods
-    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into WinCB-Elite.pyw
+    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into Clippy.pyw
 
     def _create_main_thumb(self, image_bytes):
         """Creates a PhotoImage thumbnail from bytes for the main display area."""
@@ -1404,12 +1175,7 @@ class WinCB_Elite:
                         self.img_label.config(image=self.current_display_image)
                         self.img_label.image = self.current_display_image
                         self.img_label.pack(anchor="nw", pady=5, padx=5)
-                        
-                        # Always show textbox for image clips to make it editable
-                        self.textbox.configure(state="normal")
-                        self.textbox.delete("1.0", "end")
-                        self.textbox.pack(fill="both", expand=True, pady=5, padx=5)
-                        can_edit_content = True
+                        self.textbox.configure(state="disabled")
                     except Exception as img_e:
                         print(f"Error setting image label: {img_e}")
                         display_message = "Error displaying image preview."
@@ -1419,33 +1185,6 @@ class WinCB_Elite:
                 else:
                     display_message = "Image preview unavailable or invalid."
                     self.textbox.configure(state="disabled")
-
-            elif clip_type == "mixed" and isinstance(clip_content, dict):
-                # Handle mixed clip type (containing both text and image)
-                text_content = clip_content.get("text", "")
-                image_data = clip_content.get("image")
-                
-                # Display image if available
-                if image_data and isinstance(image_data, bytes):
-                    self.current_display_image = self._create_main_thumb(image_data)
-                    if self.current_display_image:
-                        try:
-                            self.img_label.config(image=self.current_display_image)
-                            self.img_label.image = self.current_display_image
-                            self.img_label.pack(anchor="nw", pady=5, padx=5)
-                        except Exception as img_e:
-                            print(f"Error setting image in mixed clip: {img_e}")
-                
-                # Display and enable text editing
-                try:
-                    self.textbox.configure(state="normal")
-                    self.textbox.delete("1.0", "end")
-                    if text_content:
-                        self.textbox.insert("1.0", text_content)
-                    self.textbox.pack(fill="both", expand=True, pady=5, padx=5)
-                    can_edit_content = True
-                except Exception as text_e:
-                    print(f"Error displaying text in mixed clip: {text_e}")
 
             else:
                 display_message = f"Unsupported clip type: {clip_type}"
@@ -1462,10 +1201,6 @@ class WinCB_Elite:
         self._update_page_label()
         self.root.update_idletasks()
         self._update_scrollregion()
-
-        # Make text editable regardless of clip type
-        if self.textbox.winfo_ismapped() and 0 <= self.current_filtered_index < len(self.filtered_history_indices):
-            self.textbox.configure(state="normal")
 
     # --- Text Editing ---
 
@@ -1506,51 +1241,22 @@ class WinCB_Elite:
                 print("Error saving text: Original history index out of bounds.")
                 return
 
+            if self.history[original_index]["type"] != "text":
+                print("Warning: Attempted to save text edit to non-text item.")
+                return
+
             new_content = self.textbox.get("1.0", "end-1c")
-            clip_type = self.history[original_index]["type"]
-            
-            if clip_type == "text":
-                # Standard text clip update
-                if self.history[original_index]["content"] != new_content:
-                    print(f"Auto-saving changes to clip: {self.history[original_index]['title']}")
-                    self.history[original_index]["content"] = new_content
-                    self.history[original_index]["timestamp"] = time.time()
-                    self._save_history()
-                    self.textbox.edit_modified(False)
-                    self.current_clip_modified = False
-                else:
-                    self.textbox.edit_modified(False)
-                    self.current_clip_modified = False
-            
-            elif clip_type == "image":
-                # For image clips, convert to mixed type if text is added
-                if new_content.strip():
-                    print(f"Converting image clip to mixed type with text: {self.history[original_index]['title']}")
-                    image_content = self.history[original_index]["content"]
-                    # Create new mixed content
-                    mixed_content = {"text": new_content, "image": image_content}
-                    # Update the clip to mixed type
-                    self.history[original_index]["type"] = "mixed"
-                    self.history[original_index]["content"] = mixed_content
-                    self.history[original_index]["timestamp"] = time.time()
-                    self._save_history()
-                
-                self.textbox.edit_modified(False)
-                self.current_clip_modified = False
-                
-            elif clip_type == "mixed":
-                # Update text portion of mixed clip
-                current_content = self.history[original_index]["content"]
-                if current_content.get("text") != new_content:
-                    print(f"Auto-saving changes to mixed clip: {self.history[original_index]['title']}")
-                    current_content["text"] = new_content
-                    self.history[original_index]["timestamp"] = time.time()
-                    self._save_history()
-                
+
+            if self.history[original_index]["content"] != new_content:
+                print(
+                    f"Auto-saving changes to clip: {self.history[original_index]['title']}"
+                )
+                self.history[original_index]["content"] = new_content
+                self.history[original_index]["timestamp"] = time.time()
+                self._save_history()
                 self.textbox.edit_modified(False)
                 self.current_clip_modified = False
             else:
-                print(f"Warning: Attempted to save text edit to unsupported item type: {clip_type}")
                 self.textbox.edit_modified(False)
                 self.current_clip_modified = False
 
@@ -1652,61 +1358,24 @@ class WinCB_Elite:
             self._filter_and_show()
 
     def copy_selection_to_history(self):
-        """Copies selected text or the current image as a new history item."""
-        # First check if we have text selected in the textbox
-        if self.textbox.winfo_ismapped() and self.textbox.cget("state") == "normal":
-            try:
-                has_selection = self.textbox.tag_ranges("sel")
-                if has_selection:
-                    selection = self.textbox.get("sel.first", "sel.last")
-                    if selection and selection.strip():
-                        # Reset clipboard internal state to ensure fresh copy
-                        self.last_clip_text = None
-                        self.last_clip_img_data = None
-                        
-                        self._add_to_history("text", selection, is_from_selection=True)
-                        self._force_copy_to_clipboard("text", selection)
-                        
-                        # Navigate to the new clip
-                        self._filter_history()
-                        self.current_filtered_index = 0
-                        self._show_clip()
-                        
-                        # Ensure textbox remains editable
-                        self.textbox.configure(state="normal")
-                        self._show_popup("Selected text added as new clip and copied to clipboard.")
-                        return
-            except TclError:
-                pass  # No selection
-                
-        # If no text selection, check for an image
-        if self.img_label.winfo_ismapped() and self.current_display_image:
-            # An image is displayed, let's copy it
-            if (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
-                try:
-                    original_index = self.filtered_history_indices[self.current_filtered_index]
-                    if (0 <= original_index < len(self.history) and 
-                        self.history[original_index]["type"] == "image"):
-                        # Create a new clip with this image
-                        image_content = self.history[original_index]["content"]
-                        self._add_to_history("image", image_content, is_from_selection=True)
-                        self._force_copy_to_clipboard("image", image_content)
-                        
-                        # Navigate to the new clip
-                        self._filter_history()
-                        self.current_filtered_index = 0
-                        self._show_clip()
-                        
-                        self._show_popup("Image copied to new clip and to clipboard.")
-                        return
-                except Exception as e:
-                    print(f"Error copying image: {e}")
-                    
-        # If we get here, neither condition was met
-        self._show_popup("No text selection or valid image found to copy.")
-        # Make sure textbox is still editable if it's showing
-        if self.textbox.winfo_ismapped():
-            self.textbox.configure(state="normal")
+        """Copies selected text from the textbox as a new history item."""
+        if (
+            not self.running
+            or not self.textbox.winfo_ismapped()
+            or self.textbox.cget("state") == "disabled"
+        ):
+            self._show_popup("No editable text selected.")
+            return
+        try:
+            selection = self.textbox.get("sel.first", "sel.last")
+        except TclError:
+            selection = ""
+        if selection and selection.strip():
+            self._add_to_history("text", selection, is_from_selection=True)
+            self._force_copy_to_clipboard("text", selection)
+            self._show_popup("Selection added as new clip and copied to clipboard.")
+        else:
+            self._show_popup("No text selected to copy.")
 
     def copy_clip_to_clipboard(self):
         """Copies the entire current clip to the system clipboard."""
@@ -1723,7 +1392,7 @@ class WinCB_Elite:
 
             item = self.history[original_index]
             clip_type = item.get("type")
-            content = item.get("content")  # This line was missing
+            content = item.get("content")
 
             if content is None:
                 self._show_popup("Cannot copy: No content available.")
@@ -1740,86 +1409,32 @@ class WinCB_Elite:
             self._show_popup(f"Error copying clip: {e}")
 
     def _force_copy_to_clipboard(self, kind, content):
-        """Helper to forcefully set the system clipboard with retry mechanism."""
-        print(f"DEBUG: _force_copy_to_clipboard called with kind={kind}, content_size={len(content) if content else 0}")
-        max_retries = 3
-        retry_delay = 100  # ms
-        
-        for attempt in range(max_retries):
-            try:
-                # First try to get current clipboard state to check if we need to retry
-                try:
-                    win32clipboard.OpenClipboard()
-                    win32clipboard.CloseClipboard()
-                except Exception as e:
-                    print(f"DEBUG: Clipboard busy on pre-check, will retry: {e}")
-                    if attempt < max_retries - 1:
-                        print(f"DEBUG: Waiting {retry_delay}ms before retry {attempt+1}/{max_retries}")
-                        time.sleep(retry_delay/1000)
-                        retry_delay *= 2  # Exponential backoff
-                        continue
-                    else:
-                        raise  # Re-raise if this was the last attempt
-                
-                # Now do the actual clipboard operation
-                win32clipboard.OpenClipboard()
-                win32clipboard.EmptyClipboard()
-                
-                if kind == "text" and isinstance(content, str):
-                    win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, content)
-                    self.last_clip_text = content
-                    self.last_clip_img_data = None
-                    print(f"DEBUG: Text copied to clipboard successfully ({len(content)} chars)")
-                elif kind == "image" and isinstance(content, bytes):
-                    win32clipboard.SetClipboardData(CF_DIB, content)
-                    self.last_clip_img_data = content
-                    self.last_clip_text = None
-                    print(f"DEBUG: Image copied to clipboard successfully ({len(content)} bytes)")
-                elif kind == "mixed" and isinstance(content, dict):
-                    # For mixed content, prioritize text for system clipboard
-                    if "text" in content and content["text"]:
-                        win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, content["text"])
-                        self.last_clip_text = content["text"]
-                        self.last_clip_img_data = None
-                        print(f"DEBUG: Mixed (text) copied to clipboard successfully ({len(content['text'])} chars)")
-                    elif "image" in content and content["image"]:
-                        win32clipboard.SetClipboardData(CF_DIB, content["image"])
-                        self.last_clip_img_data = content["image"]
-                        self.last_clip_text = None
-                        print(f"DEBUG: Mixed (image) copied to clipboard successfully ({len(content['image'])} bytes)")
-                else:
-                    print(f"DEBUG-ERROR: Cannot force copy to clipboard: Invalid type {kind} or content")
-                    win32clipboard.CloseClipboard()
-                    return False
-                
+        """Helper to forcefully set the system clipboard."""
+        try:
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            if kind == "text" and isinstance(content, str):
+                win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, content)
+                self.last_clip_text = content
+                self.last_clip_img_data = None
+            elif kind == "image" and isinstance(content, bytes):
+                win32clipboard.SetClipboardData(CF_DIB, content)
+                self.last_clip_img_data = content
+                self.last_clip_text = None
+            else:
+                print(f"Cannot force copy to clipboard: Invalid type {kind}")
                 win32clipboard.CloseClipboard()
-                
-                # Only set ignore period for automatic clipboard monitoring
-                # Use a shorter ignore period for manual operations to allow rapid paste sequences
-                self.ignore_clip_until = time.time() + 0.5  # Reduced from 1.5s to 0.5s
-                
-                print(f"DEBUG: Clipboard operation completed successfully on attempt {attempt+1}")
-                return True
-                
-            except Exception as e:
-                print(f"DEBUG-ERROR: Error forcing clipboard copy (attempt {attempt+1}/{max_retries}): {e}")
-                print(f"DEBUG-ERROR: Error type: {type(e).__name__}")
-                traceback.print_exc()
-                
-                try:
-                    win32clipboard.CloseClipboard()
-                except:
-                    pass
-                    
-                if attempt < max_retries - 1:
-                    print(f"DEBUG: Waiting {retry_delay}ms before retry {attempt+1}/{max_retries}")
-                    time.sleep(retry_delay/1000)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    self._show_popup(f"Clipboard Error: {e}", priority=2)
-                    return False
-        
-        return False  # Should not reach here, but just in case
+                return
+            win32clipboard.CloseClipboard()
+            self.ignore_clip_until = time.time() + 1.5
+        except Exception as e:
+            print(f"Error forcing clipboard copy: {e}")
+            traceback.print_exc()
+            self._show_popup(f"Clipboard Error: {e}")
+            try:
+                win32clipboard.CloseClipboard()
+            except:
+                pass
 
     def prev_clip(self):
         """Moves to the previous (older) clip."""
@@ -2003,149 +1618,79 @@ class WinCB_Elite:
         self._center_toplevel(modal)
 
     def _show_preview_popup(self, event, history_index, widget):
-        """Creates and displays a preview popup for clip content on hover."""
+        """Creates and shows a Toplevel popup preview."""
         if not self.running or not (0 <= history_index < len(self.history)):
             return
-            
-        # Ensure all existing preview popups are destroyed
         self._hide_preview_popup()
-        
-        # Double-check for any orphaned previews
         try:
-            for widget in self.root.winfo_children():
-                if isinstance(widget, ctk.CTkToplevel) and widget.winfo_exists():
-                    if widget.winfo_name().startswith('!ctktoplevel') and widget != self.root:
-                        try:
-                            if hasattr(widget, 'title') and widget.title() == "Clip Preview":
-                                widget.destroy()
-                        except:
-                            pass
-        except Exception as e:
-            print(f"Warning: Failed to clean up orphaned previews: {e}")
-        
-        try:
-            # Get clip info
-            clip = self.history[history_index]
-            clip_type = clip.get("type", "unknown")
-            content = clip.get("content")
-            title = clip.get("title", "Untitled")
-            
+            item = self.history[history_index]
+            kind, content = item.get("type"), item.get("content")
             if content is None:
                 return
-                
-            # Create popup window
-            self.preview_popup = ctk.CTkToplevel(self.root)
-            self.preview_popup.title("Clip Preview")
+            self.preview_popup = Toplevel(self.root)
+            self.preview_popup.wm_overrideredirect(True)
             self.preview_popup.attributes("-topmost", True)
-            self.preview_popup.overrideredirect(True)
-            self.preview_popup.configure(fg_color=MAIN_BG_COLOR)
-            
-            # Add a callback to ensure this popup is tracked for cleanup
-            self.preview_popup.bind("<Destroy>", lambda e: self._on_preview_destroy(e))
-            
-            # Position popup near mouse
-            x, y = event.x_root, event.y_root
-            
-            # Create content frame
-            content_frame = ctk.CTkFrame(self.preview_popup, fg_color=MAIN_BG_COLOR)
-            content_frame.pack(fill="both", expand=True, padx=5, pady=5)
-            
-            # Add title label
-            title_label = ctk.CTkLabel(
-                content_frame, 
-                text=f"Title: {title}", 
-                font=("Segoe UI", 11, "bold"),
-                anchor="w"
-            )
-            title_label.pack(fill="x", padx=5, pady=(5, 2))
-            
-            # Add type label
-            type_label = ctk.CTkLabel(
-                content_frame, 
-                text=f"Type: {clip_type}", 
-                font=("Segoe UI", 10),
-                anchor="w"
-            )
-            type_label.pack(fill="x", padx=5, pady=(0, 5))
-            
-            # Show preview based on type
-            if clip_type == "text" and isinstance(content, str):
-                # For text content, show first few lines
-                preview_text = content[:300] + ("..." if len(content) > 300 else "")
-                text_area = Text(
-                    content_frame,
-                    wrap="word",
-                    width=40,
-                    height=6,
-                    font=("Segoe UI", 10),
-                    bg=MAIN_BG_COLOR,
-                    fg=TEXT_FG_COLOR,
-                    bd=0,
-                    relief="flat",
+            border = Frame(self.preview_popup, bg="#aaa", bd=1)
+            border.pack(fill="both", expand=True)
+            inner = Frame(border, bg="#333")
+            inner.pack(fill="both", expand=True, padx=1, pady=1)
+            wid = None
+            if kind == "text" and isinstance(content, str):
+                lines = content.strip().split("\n")
+                txt = "\n".join(lines[:PREVIEW_MAX_TEXT_LINES])
+                txt = "\n".join(
+                    [
+                        l[:PREVIEW_MAX_TEXT_CHARS_PER_LINE]
+                        + ("..." if len(l) > PREVIEW_MAX_TEXT_CHARS_PER_LINE else "")
+                        for l in txt.split("\n")
+                    ]
                 )
-                text_area.insert("1.0", preview_text)
-                text_area.configure(state="disabled")
-                text_area.pack(fill="both", expand=True, padx=5, pady=5)
-                
-            elif clip_type == "image" and isinstance(content, bytes):
-                # For image content, show a thumbnail
+                if len(lines) > PREVIEW_MAX_TEXT_LINES:
+                    txt += "\n..."
+                wid = Label(
+                    inner,
+                    text=txt or "(Empty)",
+                    justify="left",
+                    bg="#333",
+                    fg="#fff" if txt else "#aaa",
+                    font=("Segoe UI", 9),
+                    padx=5,
+                    pady=5,
+                    wraplength=PREVIEW_MAX_IMAGE_WIDTH * 1.5,
+                )
+            elif kind == "image" and isinstance(content, bytes):
                 try:
                     img = Image.open(BytesIO(content))
-                    # Resize to fit preview
-                    img.thumbnail((200, 200))
-                    tk_img = ImageTk.PhotoImage(img)
-                    # Need to keep a reference to prevent garbage collection
-                    self.tk_image_references[id(self.preview_popup)] = tk_img
-                    
-                    img_label = Label(content_frame, image=tk_img, bg=MAIN_BG_COLOR)
-                    img_label.pack(padx=5, pady=5)
-                except Exception as e:
-                    error_label = ctk.CTkLabel(
-                        content_frame, 
-                        text=f"[Image Preview Error: {str(e)}]",
-                        text_color="red"
+                    img.thumbnail(
+                        (PREVIEW_MAX_IMAGE_WIDTH, PREVIEW_MAX_IMAGE_HEIGHT),
+                        Image.Resampling.LANCZOS,
                     )
-                    error_label.pack(padx=5, pady=5)
-            
-            # Size and position window
-            self.preview_popup.update_idletasks()
-            popup_width = self.preview_popup.winfo_reqwidth()
-            popup_height = self.preview_popup.winfo_reqheight()
-            
-            # Adjust position to ensure popup is visible on screen
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            
-            # Position 10px below the cursor
-            x_pos = x
-            y_pos = y + 10
-            
-            # Adjust if would go off screen
-            if x_pos + popup_width > screen_width:
-                x_pos = max(0, screen_width - popup_width - 10)
-            if y_pos + popup_height > screen_height:
-                y_pos = max(0, y - popup_height - 10)  # Show above instead of below
-                
-            self.preview_popup.geometry(f"{popup_width}x{popup_height}+{x_pos}+{y_pos}")
-            
-            # Add an escape key binding to close the popup
-            self.preview_popup.bind("<Escape>", lambda e: self._hide_preview_popup())
-            
+                    tk_img = ImageTk.PhotoImage(img)
+                    self.tk_image_references[id(self.preview_popup)] = tk_img
+                    wid = Label(inner, image=tk_img, bg="#333")
+                except Exception as e:
+                    print(f"Warn: Preview img err: {e}")
+                    wid = Label(
+                        inner,
+                        text="(Img Err)",
+                        bg="#333",
+                        fg="#f88",
+                        font=("Segoe UI", 9),
+                        padx=5,
+                        pady=5,
+                    )
+            if wid:
+                wid.pack()
+                self.preview_popup.update_idletasks()
+                x = widget.winfo_rootx() + widget.winfo_width() + 10
+                y = widget.winfo_rooty()
+                self.preview_popup.geometry(f"+{x}+{y}")
+            else:
+                self._hide_preview_popup()
         except Exception as e:
-            print(f"Error showing preview popup: {e}")
+            print(f"Error preview: {e}")
             traceback.print_exc()
             self._hide_preview_popup()
-            
-    def _on_preview_destroy(self, event):
-        """Handle preview popup destruction to clean up resources."""
-        if event.widget == self.preview_popup:
-            popup_id = id(self.preview_popup)
-            if popup_id in self.tk_image_references:
-                try:
-                    del self.tk_image_references[popup_id]
-                except:
-                    pass
-            self.preview_popup = None
 
     def _hide_preview_popup(self):
         """Destroys the preview popup window."""
@@ -2158,19 +1703,6 @@ class WinCB_Elite:
             if popup_id in self.tk_image_references:
                 del self.tk_image_references[popup_id]
         self.preview_popup = None
-        
-        # Also destroy any orphaned preview popups that might be lingering
-        try:
-            for widget in self.root.winfo_children():
-                if isinstance(widget, ctk.CTkToplevel) and widget.winfo_exists():
-                    if widget.winfo_name().startswith('!ctktoplevel') and widget != self.root:
-                        try:
-                            if hasattr(widget, 'title') and widget.title() == "Clip Preview":
-                                widget.destroy()
-                        except:
-                            pass
-        except Exception as e:
-            print(f"Error cleaning up preview popups: {e}")
 
     def _select_clip_from_modal(self, history_index, modal):
         """Navigates main display to selected clip and closes modal."""
@@ -2199,10 +1731,10 @@ class WinCB_Elite:
             except:
                 pass
 
-    # WinCB-Elite_part5.py
-    # Part 5 of 5 for WinCB-Elite.pyw
+    # Clippy_part5.py
+    # Part 5 of 5 for Clippy.pyw
     # Contains batch save, save/restore group, window management, tray setup, and main execution
-    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into WinCB-Elite.pyw
+    # To combine: Concatenate part1 + part2 + part3 + part4 + part5 into Clippy.pyw
 
     # --- Save Batch ---
 
@@ -2211,7 +1743,7 @@ class WinCB_Elite:
         name = re.sub(r'[<>:"/\\|?*]', "", name).strip(". ")
         if re.match(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", name, re.IGNORECASE):
             name = "_" + name
-        return name if name else "Untitled_WinCB-Elite_Batch"
+        return name if name else "Untitled_Clippy_Batch"
 
     def _prompt_and_save_batch(self):
         """Prompts for batch name and initiates save."""
@@ -2242,28 +1774,8 @@ class WinCB_Elite:
             return
 
         name = self._sanitize_filename(name_raw)
-        default_filename = f"{name}.txt"
-        
-        # Use file dialog to let user choose save location
-        try:
-            from tkinter import filedialog
-            dialog.attributes("-topmost", False)
-            filepath = filedialog.asksaveasfilename(
-                initialdir=str(BATCH_SAVE_DIR),
-                initialfile=default_filename,
-                title="Save Batch Export",
-                defaultextension=".txt",
-                filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
-            )
-            dialog.attributes("-topmost", True)
-        except Exception as file_dialog_err:
-            print(f"Error showing file dialog: {file_dialog_err}")
-            filepath = os.path.join(str(BATCH_SAVE_DIR), default_filename)
-            
-        if not filepath:
-            if was_hidden and self.running:
-                self.root.after(100, self._hide_window)
-            return
+        filename = f"{name}.txt"
+        filepath = os.path.join(str(BATCH_SAVE_DIR), filename)
 
         num_save = len(self.filtered_history_indices)
         texts = 0
@@ -2272,7 +1784,7 @@ class WinCB_Elite:
             search_text = self.search_entry.get()  # No placeholder check needed
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(
-                    f"WinCB-Elite Export: {name}\nFilter: '{search_text}'\nClips: {num_save}\n{'='*40}\n\n"
+                    f"Clippy Export: {name}\nFilter: '{search_text}'\nClips: {num_save}\n{'='*40}\n\n"
                 )
                 for filt_idx, orig_idx in enumerate(self.filtered_history_indices):
                     if 0 <= orig_idx < len(self.history):
@@ -2295,11 +1807,6 @@ class WinCB_Elite:
                         f.write(
                             f"--- Clip {filt_idx+1}/{num_save} ---\nError: Bad Index\n{'-'*20}\n\n"
                         )
-            
-            # Extract just the filename for the message
-            filename = os.path.basename(filepath)
-            export_dir = os.path.dirname(filepath)
-            
             msg = (
                 f"Saved {texts} text(s)"
                 + (f" and {len(images)} image title(s)" if images else "")
@@ -2307,11 +1814,11 @@ class WinCB_Elite:
             )
             self._show_popup(msg)
             try:
-                os.startfile(export_dir)
+                os.startfile(str(BATCH_SAVE_DIR))
             except Exception as open_e:
-                print(f"Warning: Failed to open export folder: {open_e}")
+                print(f"Warn: Open folder fail: {open_e}")
         except Exception as e:
-            print(f"Error saving batch: {e}")
+            print(f"Error save batch: {e}")
             traceback.print_exc()
             self._show_popup(f"Error saving: {e}")
         finally:
@@ -2595,14 +2102,14 @@ class WinCB_Elite:
         except:
             log_dir = "current directory"
         dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Close WinCB-Elite")
+        dialog.title("Close Clippy")
         dialog.geometry("350x180")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.attributes("-topmost", True)
         dialog.configure(fg_color=MAIN_BG_COLOR)
         ctk.CTkLabel(
-            dialog, text=f"History file location:\n{log_dir}\n\nClose WinCB-Elite now?"
+            dialog, text=f"History file location:\n{log_dir}\n\nClose Clippy now?"
         ).pack(pady=20, padx=10)
         btns = ctk.CTkFrame(dialog, fg_color="transparent")
         btns.pack(pady=10)
@@ -2666,7 +2173,7 @@ class WinCB_Elite:
                 self.root.destroy()
         except Exception as e:
             print(f"  Warn: Destroy err: {e}")
-        print("WinCB-Elite shutdown complete.")
+        print("Clippy shutdown complete.")
 
     # --- Window Snapping ---
 
@@ -2747,12 +2254,12 @@ class WinCB_Elite:
 
             menu = (
                 item(
-                    "Show WinCB-Elite",
+                    "Show Clippy",
                     schedule(self._do_show_window),
                     default=True,
                     enabled=is_hid,
                 ),
-                item("Hide WinCB-Elite", schedule(self._hide_window), enabled=is_vis),
+                item("Hide Clippy", schedule(self._hide_window), enabled=is_vis),
                 item("Pause Capture", schedule(self._toggle_capture), enabled=is_r),
                 item("Resume Capture", schedule(self._toggle_capture), enabled=is_p),
                 pystray.Menu.SEPARATOR,
@@ -2773,7 +2280,7 @@ class WinCB_Elite:
                 ),
                 item("Clear History", schedule(self.clear_history), enabled=can_clr),
                 pystray.Menu.SEPARATOR,
-                item("Quit WinCB-Elite", schedule(self._prompt_close), enabled=self.running),
+                item("Quit Clippy", schedule(self._prompt_close), enabled=self.running),
             )
 
             self.icon = pystray.Icon(
@@ -2795,24 +2302,6 @@ class WinCB_Elite:
     def _icon_image(self):
         """Generates the tray icon image (requires Pillow)."""
         try:
-            # Try to load custom icon first
-            custom_icon_path = self.config.get("custom_icon_path")
-            if custom_icon_path and os.path.exists(custom_icon_path):
-                try:
-                    # Load and return the custom icon
-                    custom_img = Image.open(custom_icon_path)
-                    # Resize to standard size if needed
-                    custom_img = custom_img.resize((64, 64))
-                    # If we have a transparent background, use it
-                    if custom_img.mode != 'RGBA':
-                        custom_img = custom_img.convert('RGBA')
-                    print(f"Using custom icon: {custom_icon_path}")
-                    return custom_img
-                except Exception as icon_err:
-                    print(f"Error loading custom icon, falling back to default: {icon_err}")
-                    # Continue to default icon creation
-            
-            # Default icon creation
             W, H, P = 64, 64, 8
             CW, CH = 20, 12
             BGC = (0, 0, 0, 0)
@@ -2840,17 +2329,11 @@ class WinCB_Elite:
 
     # --- Utility: Show Message Box ---
 
-    def _show_popup(self, msg, priority=1):
-        """Schedules showing a message box in the main thread with priority level.
-        Priority: 1 = normal, 2 = important (forced)
-        """
-        print(f"DEBUG: Show popup: '{msg}' (priority {priority})")
+    def _show_popup(self, msg):
+        """Schedules showing a message box in the main thread."""
         if self.running:
-            # For priority=2 messages, always show them
-            # For priority=1 messages, don't show them if they're about in-progress clips
-            if priority > 1 or "in-progress" not in msg.lower():
-                self.root.after(0, lambda m=msg: self._display_messagebox(m))
-            
+            self.root.after(0, lambda m=msg: self._display_messagebox(m))
+
     def _display_messagebox(self, msg):
         """Displays a custom message box using CTkToplevel."""
         if not self.running or not self.root.winfo_exists():
@@ -2871,999 +2354,8 @@ class WinCB_Elite:
             )
             self._center_toplevel(dialog)
         except Exception as e:
-            print(f"DEBUG: Popup error: {e}")
+            print(f"Popup error: {e}")
             print(f"{APP_NAME} Msg: {msg}")
-
-    def show_context_menu(self, event):
-        """Displays the right-click context menu with context-aware options."""
-        if hasattr(self, 'context_menu') and self.context_menu.winfo_exists():
-            self.context_menu.destroy()
-        self.context_menu = ctk.CTkFrame(self.root, fg_color="gray25")
-        
-        # Determine context (text or image)
-        is_image_context = event.widget == self.img_label
-        is_text_context = event.widget == self.textbox
-        
-        # Check if there's a text selection
-        has_text_selection = False
-        if is_text_context:
-            try:
-                sel_range = self.textbox.tag_ranges("sel")
-                has_text_selection = bool(sel_range)
-            except TclError:
-                pass
-        
-        # Create common buttons
-        self.context_menu.copy_btn = ctk.CTkButton(
-            self.context_menu, text="Copy Active Clip", 
-            command=self.copy_active_clip_to_buffer, width=220
-        )
-        
-        # Create context-specific buttons
-        if is_image_context:
-            self.context_menu.copy_image_btn = ctk.CTkButton(
-                self.context_menu, text="Copy Image to New Clip", 
-                command=self.copy_image_to_new_clip, width=220
-            )
-        
-        self.context_menu.paste_to_current_btn = ctk.CTkButton(
-            self.context_menu, text="Paste to Current Clip", 
-            command=self.paste_from_buffer_to_current_clip, width=220
-        )
-        
-        self.context_menu.paste_btn = ctk.CTkButton(
-            self.context_menu, text="Paste from Clipboard", 
-            command=self.paste_from_buffer_to_in_progress_clip, width=220
-        )
-        
-        self.context_menu.clear_btn = ctk.CTkButton(
-            self.context_menu, text="Clear Clipboard", 
-            command=self.clear_additional_buffer, width=220
-        )
-        
-        # Pack buttons in context-specific order
-        self.context_menu.copy_btn.pack(pady=2)
-        if is_image_context:
-            self.context_menu.copy_image_btn.pack(pady=2)
-        self.context_menu.paste_to_current_btn.pack(pady=2)
-        self.context_menu.paste_btn.pack(pady=2)
-        self.context_menu.clear_btn.pack(pady=2)
-
-        # Configure button states
-        can_paste = self.additional_clipboard is not None
-        has_current_clip = (0 <= self.current_filtered_index < len(self.filtered_history_indices))
-        
-        self.context_menu.paste_btn.configure(state="normal" if can_paste else "disabled")
-        self.context_menu.paste_to_current_btn.configure(state="normal" if (can_paste and has_current_clip) else "disabled")
-
-        # Handle click-outside binding
-        if self.click_outside_handler_id:
-            try:
-                self.root.unbind("<Button-1>", self.click_outside_handler_id)
-            except TclError:
-                pass
-            self.click_outside_handler_id = None
-
-        # IMPROVED MENU POSITIONING
-        # First update the menu to calculate its size
-        self.context_menu.update_idletasks()
-
-        # Get screen dimensions
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-
-        # Get menu dimensions
-        menu_width = 240  # Force a reasonable fixed width since reqwidth might not be accurate
-        menu_height = 150  # Estimate of height for 4 buttons with padding
-
-        # Get mouse position - use actual event coordinates
-        x_pos = event.x_root
-        y_pos = event.y_root
-
-        # Center menu on cursor (offset to the left)
-        x_pos = x_pos - (menu_width // 2)  # Center horizontally on cursor
-        y_pos = y_pos - 10  # Place slightly above cursor
-
-        # Adjust position if it would go off screen
-        if x_pos + menu_width > screen_width:
-            x_pos = screen_width - menu_width - 10
-        if x_pos < 0:
-            x_pos = 10
-        
-        if y_pos + menu_height > screen_height:
-            y_pos = screen_height - menu_height - 10
-        if y_pos < 0:
-            y_pos = 10
-
-        # Convert to window-relative coordinates if needed
-        try:
-            root_x = self.root.winfo_rootx()
-            root_y = self.root.winfo_rooty()
-            x_pos = max(0, x_pos - root_x)
-            y_pos = max(0, y_pos - root_y)
-        except Exception as e:
-            print(f"Warning: Error calculating menu position: {e}")
-
-        # Place menu at adjusted coordinates
-        self.context_menu.place(x=x_pos, y=y_pos)
-        self.context_menu.lift()
-
-        def click_outside_handler(e):
-            if not self.running or not hasattr(self, 'context_menu') or not self.context_menu.winfo_exists():
-                if hasattr(self, 'click_outside_handler_id') and self.click_outside_handler_id:
-                    try: self.root.unbind("<Button-1>", self.click_outside_handler_id)
-                    except TclError: pass
-                    self.click_outside_handler_id = None
-                return
-
-            widget_under_cursor = e.widget
-            is_on_menu_or_child = False
-            current_widget = widget_under_cursor
-            while current_widget is not None:
-                if current_widget == self.context_menu:
-                    is_on_menu_or_child = True
-                    break
-                try:
-                    current_widget = current_widget.master 
-                except AttributeError:
-                    break 
-            
-            if not is_on_menu_or_child:
-                self.context_menu.place_forget()
-                if hasattr(self, 'click_outside_handler_id') and self.click_outside_handler_id:
-                    try: self.root.unbind("<Button-1>", self.click_outside_handler_id)
-                    except TclError: pass
-                    self.click_outside_handler_id = None
-        
-        # Delay the binding of the click_outside_handler
-        # Store the binding ID on self so it can be unbound.
-        self.root.after(50, lambda: setattr(self, 'click_outside_handler_id', self.root.bind("<Button-1>", click_outside_handler, add="+")))
-
-    def copy_active_clip_to_buffer(self, event=None):
-        """Copies the full content of the currently displayed clip to the additional buffer."""
-        if not self.running or not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
-            print("No active clip to copy to buffer.")
-            return
-
-        try:
-            original_index = self.filtered_history_indices[self.current_filtered_index]
-            if not (0 <= original_index < len(self.history)):
-                print("Error copying to buffer: Invalid clip index.")
-                return
-
-            item = self.history[original_index]
-            clip_type = item.get("type")
-            content = item.get("content")
-
-            if content is None:
-                print("Cannot copy to buffer: No content available in the active clip.")
-                return
-
-            self.additional_clipboard = {"type": clip_type, "content": content}
-            self._update_buffer_status()  # Update the buffer status indicator
-            self._show_popup(f"Active '{clip_type}' clip copied to buffer")  # Show a popup message
-            print(f"Active '{clip_type}' clip content copied to additional buffer.")
-            if self.context_menu.winfo_ismapped():
-                self.context_menu.place_forget()
-        except Exception as e:
-            print(f"Error copying active clip to buffer: {e}")
-            traceback.print_exc()
-
-    def copy_focused_content_to_buffer(self, event=None):
-        """Copies selected text, all text from textbox, or current image to the additional buffer."""
-        if not self.running:
-            return
-
-        copied_something = False
-        # Priority 1: Selected text in the textbox
-        if self.textbox.winfo_ismapped() and self.textbox.cget("state") == "normal":
-            try:
-                has_selection = self.textbox.tag_ranges("sel")
-                if has_selection:
-                    selection = self.textbox.get("sel.first", "sel.last")
-                    if selection and selection.strip():
-                        # Reset clipboard internal state to ensure fresh selection copy
-                        self.last_clip_text = None
-                        self.last_clip_img_data = None
-                        
-                        self.additional_clipboard = {"type": "text", "content": selection}
-                        self._update_buffer_status()  # Update buffer status indicator
-                        self._show_popup(f"Selected text copied")  # Show popup
-                        print(f"DEBUG: Selected text copied: '{selection[:30]}...'")
-                        self._force_copy_to_clipboard("text", selection)  # Also copy to system clipboard
-                        copied_something = True
-                        if self.context_menu.winfo_ismapped():
-                            self.context_menu.place_forget()
-                        return  # Exit early after copying selection
-            except TclError: # No selection
-                pass
-        
-        # Priority 2: If nothing selected, but textbox is active and showing a text clip
-        if not copied_something and self.textbox.winfo_ismapped() and self.textbox.cget("state") == "normal":
-            full_text = self.textbox.get("1.0", "end-1c")
-            if full_text and full_text.strip():
-                self.additional_clipboard = {"type": "text", "content": full_text}
-                self._update_buffer_status()  # Update buffer status indicator
-                self._show_popup(f"Full text copied to buffer")  # Show popup
-                print("All text from textbox copied to additional buffer.")
-                copied_something = True
-
-        # Priority 3: Current image if displayed
-        elif not copied_something and self.img_label.winfo_ismapped() and self.current_display_image:
-            if (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
-                try:
-                    original_index = self.filtered_history_indices[self.current_filtered_index]
-                    if (0 <= original_index < len(self.history) and 
-                        self.history[original_index]["type"] == "image"):
-                        image_content = self.history[original_index]["content"]
-                        self.additional_clipboard = {"type": "image", "content": image_content}
-                        self._update_buffer_status()  # Update buffer status indicator
-                        self._show_popup(f"Image copied to buffer")  # Show popup
-                        print("Current image copied to additional buffer.")
-                        copied_something = True
-                except Exception as e:
-                    print(f"Error accessing image content for additional buffer: {e}")
-            
-        if not copied_something:
-            print("No suitable content found to copy to additional buffer.")
-        
-        if self.context_menu.winfo_ismapped():
-            self.context_menu.place_forget()
-
-    def clear_additional_buffer(self, event=None):
-        """Clears the additional clipboard buffer."""
-        self.additional_clipboard = None
-        self._update_buffer_status()  # Update the buffer status indicator
-        self._show_popup("Buffer cleared")  # Show popup
-        print("Additional buffer cleared.")
-        if self.context_menu.winfo_ismapped():
-            self.context_menu.place_forget()
-            
-    def paste_from_buffer_to_in_progress_clip(self, event=None):
-        """Pastes content from the additional buffer directly to system clipboard."""
-        print("DEBUG: paste_from_buffer_to_in_progress_clip called")
-        
-        if not self.additional_clipboard:
-            print("DEBUG: Buffer is empty")
-            self._show_popup("Buffer is empty", priority=2)  # Higher priority
-            print("Additional buffer is empty. Nothing to paste.")
-            return
-
-        item_type = self.additional_clipboard["type"]
-        item_content = self.additional_clipboard["content"]
-
-        # First update the in-progress clip in the background
-        print("DEBUG: Updating in-progress clip")
-        in_progress_updated = False
-        
-        if item_type == "text":
-            if self.in_progress_clip["text"]: # Add a newline if there's existing text
-                self.in_progress_clip["text"] += "\n" + item_content
-            else:
-                self.in_progress_clip["text"] = item_content
-            print(f"DEBUG: Text from buffer added to in-progress clip ({len(item_content)} chars)")
-            in_progress_updated = True
-            
-        elif item_type == "image":
-            self.in_progress_clip["images"].append(item_content)
-            print(f"DEBUG: Image from buffer added to in-progress clip ({len(item_content)} bytes)")
-            in_progress_updated = True
-            
-        elif item_type == "mixed" and isinstance(item_content, dict):
-            # Handle mixed content by adding each component
-            if "text" in item_content and item_content["text"]:
-                if self.in_progress_clip["text"]:
-                    self.in_progress_clip["text"] += "\n" + item_content["text"]
-                else:
-                    self.in_progress_clip["text"] = item_content["text"]
-                print(f"DEBUG: Text from mixed buffer added to in-progress clip")
-                in_progress_updated = True
-            
-            if "image" in item_content and item_content["image"]:
-                self.in_progress_clip["images"].append(item_content["image"])
-                print(f"DEBUG: Image from mixed buffer added to in-progress clip")
-                in_progress_updated = True
-        else:
-            print(f"DEBUG: Unknown type in additional buffer: {item_type}")
-
-        # Then try to copy to system clipboard (even if in-progress update failed)
-        print("DEBUG: Copying buffer content to system clipboard")
-        success = self._force_copy_to_clipboard(item_type, item_content)
-        
-        # Update feedback message based on both operations
-        if success:
-            msg = f"Content pasted to system clipboard"
-            if in_progress_updated:
-                if item_type == "text":
-                    msg += " and added to in-progress clip"
-                elif item_type == "image":
-                    msg += " and image added to in-progress clip"
-                elif item_type == "mixed":
-                    msg += " and content added to in-progress clip"
-                    
-            self._show_popup(msg, priority=2)  # Higher priority
-            print(f"DEBUG: Content copied to system clipboard: type={item_type}")
-            
-            # Update buffer status indicator
-            self._update_buffer_status()
-        else:
-            self._show_popup("Failed to copy to clipboard. See console for details.", priority=2)
-            print("DEBUG-ERROR: Failed to paste content to clipboard after retries")
-            
-        if self.context_menu.winfo_ismapped():
-            self.context_menu.place_forget()
-
-    def _update_buffer_status(self):
-        """Updates the buffer status indicator based on content in the buffer."""
-        if not self.additional_clipboard:
-            self.buffer_status_var.set("Buffer: Empty")
-            self.buffer_status_label.configure(text_color="#aaaaaa")
-            return
-            
-        buffer_type = self.additional_clipboard.get("type", "unknown")
-        if buffer_type == "text":
-            content = self.additional_clipboard.get("content", "")
-            if content:
-                preview = content[:20].replace("\n", " ")
-                if len(content) > 20:
-                    preview += "..."
-                self.buffer_status_var.set(f"Buffer: Text \"{preview}\"")
-                self.buffer_status_label.configure(text_color="#00cc00")
-            else:
-                self.buffer_status_var.set("Buffer: Empty text")
-                self.buffer_status_label.configure(text_color="#aaaaaa")
-        elif buffer_type == "image":
-            self.buffer_status_var.set("Buffer: Image data")
-            self.buffer_status_label.configure(text_color="#00cc00")
-        else:
-            self.buffer_status_var.set(f"Buffer: {buffer_type.capitalize()}")
-            self.buffer_status_label.configure(text_color="#00cc00")
-
-    def start_new_clip_from_selection(self):
-        """Clears the in-progress clip and adds current selection to it."""
-        self.in_progress_clip = {"text": "", "images": []}
-        print("New in-progress clip started.")
-        self.add_selection_to_in_progress_clip(is_new=True)
-
-    def add_selection_to_in_progress_clip(self, is_new=False):
-        """Adds selected text or current image to the in-progress clip."""
-        added_something = False
-        if self.textbox.winfo_ismapped() and self.textbox.cget("state") == "normal":
-            try:
-                selection = self.textbox.get("sel.first", "sel.last")
-                if selection and selection.strip():
-                    if self.in_progress_clip["text"] and not is_new:
-                         self.in_progress_clip["text"] += "\n" + selection
-                    else:
-                         self.in_progress_clip["text"] = selection
-                    print(f"Selected text added to in-progress clip.")
-                    added_something = True
-            except TclError: # No text selection
-                # If it's a new clip and no text selection, try to add full text
-                if is_new:
-                    full_text = self.textbox.get("1.0", "end-1c")
-                    if full_text and full_text.strip():
-                        self.in_progress_clip["text"] = full_text
-                        print(f"Full text from editor added to new in-progress clip.")
-                        added_something = True
-
-        if not added_something and self.img_label.winfo_ismapped() and self.current_display_image:
-            if (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
-                try:
-                    original_index = self.filtered_history_indices[self.current_filtered_index]
-                    if (0 <= original_index < len(self.history) and 
-                        self.history[original_index]["type"] == "image"):
-                        image_content = self.history[original_index]["content"]
-                        self.in_progress_clip["images"].append(image_content)
-                        print(f"Current image added to in-progress clip.")
-                        added_something = True
-                except Exception as e:
-                    print(f"Error adding image to in-progress clip: {e}")
-        
-        if not added_something:
-            print("No selection or image to add to in-progress clip.")
-        else:
-            # Provide feedback about the in-progress clip status
-            status = f"In-progress clip: "
-            if self.in_progress_clip["text"]:
-                status += f"{len(self.in_progress_clip['text'].splitlines())} text line(s)"
-            if self.in_progress_clip["images"]:
-                if self.in_progress_clip["text"]: status += ", "
-                status += f"{len(self.in_progress_clip['images'])} image(s)"
-            print(status)
-
-    def save_in_progress_clip(self):
-        """Saves the in-progress clip (text and images) as a new history item."""
-        text_content = self.in_progress_clip["text"].strip()
-        images_content = self.in_progress_clip["images"]
-
-        if not text_content and not images_content:
-            self._show_popup("In-progress clip is empty. Nothing to save.")
-            return
-
-        current_time = time.time()
-        
-        # Handle different combinations of content
-        if text_content and images_content:
-            # We have both text and images - create a mixed type clip
-            print(f"DEBUG: Creating mixed clip with text and {len(images_content)} image(s)")
-            
-            # Use the first image for the mixed clip
-            mixed_content = {
-                "text": text_content,
-                "image": images_content[0]  # First image goes into mixed clip
-            }
-            
-            # Add the mixed clip to history
-            self._add_to_history("mixed", mixed_content, is_from_selection=True)
-            
-            # If there are additional images, add them as separate clips
-            if len(images_content) > 1:
-                for img_data in images_content[1:]:
-                    self._add_to_history("image", img_data, is_from_selection=True)
-                    print("Additional in-progress image saved as separate clip.")
-                
-                self._show_popup(f"In-progress content saved: 1 mixed clip and {len(images_content)-1} additional image(s).")
-            else:
-                self._show_popup("In-progress content saved as mixed clip.")
-                
-        elif text_content:
-            # Text only
-            self._add_to_history("text", text_content, is_from_selection=True)
-            print("In-progress text saved to history.")
-            self._show_popup("In-progress text saved to history.")
-            
-        elif images_content:
-            # Images only
-            for img_data in images_content:
-                self._add_to_history("image", img_data, is_from_selection=True)
-            print(f"{len(images_content)} in-progress image(s) saved to history.")
-            self._show_popup(f"{len(images_content)} in-progress image(s) saved to history.")
-
-        # Reset after saving
-        self.in_progress_clip = {"text": "", "images": []}
-        self._filter_and_show() # Refresh display
-
-    def paste_from_buffer_to_current_clip(self, event=None):
-        """Pastes content from the additional buffer into the current clip."""
-        print("DEBUG: paste_from_buffer_to_current_clip called")
-        
-        if not self.additional_clipboard:
-            print("DEBUG: Buffer is empty")
-            self._show_popup("Buffer is empty")
-            print("Buffer is empty. Cannot paste to current clip.")
-            return
-        
-        if not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
-            print("DEBUG: No current clip selected")
-            self._show_popup("No current clip selected")
-            print("No current clip selected to paste into.")
-            return
-        
-        print("DEBUG: Getting clip details")
-        original_index = self.filtered_history_indices[self.current_filtered_index]
-        current_clip = self.history[original_index]
-        print(f"DEBUG: Current clip type: {current_clip['type']}")
-        print(f"DEBUG: Buffer clip type: {self.additional_clipboard['type']}")
-        
-        # Handle text-to-text pasting - directly add to the text widget
-        if self.additional_clipboard["type"] == "text" and current_clip["type"] == "text":
-            print("DEBUG: Text-to-text pasting")
-            content_to_paste = self.additional_clipboard["content"]
-            self.textbox.configure(state="normal")
-            self.textbox.insert("end", "\n" + content_to_paste)  # Append with newline
-            self._on_text_edited()  # Trigger save
-            self._show_popup("Text pasted to current clip")
-            print("Pasted text content to current text clip.")
-            return
-            
-        # Handle text-to-mixed pasting
-        if self.additional_clipboard["type"] == "text" and current_clip["type"] == "mixed":
-            print("DEBUG: Text-to-mixed pasting")
-            content_to_paste = self.additional_clipboard["content"]
-            
-            # Get the current text content from the mixed clip
-            current_text = current_clip["content"].get("text", "")
-            
-            # Append the new text with a newline
-            new_text = current_text + "\n" + content_to_paste if current_text else content_to_paste
-            
-            # Update the mixed clip's text content
-            current_clip["content"]["text"] = new_text
-            
-            # Update the display
-            self.textbox.configure(state="normal")
-            self.textbox.delete("1.0", "end")
-            self.textbox.insert("1.0", new_text)
-            
-            # Save changes
-            self.history[original_index]["timestamp"] = time.time()
-            self._save_history()
-            
-            self._show_popup("Text pasted to current mixed clip")
-            print("Pasted text content to current mixed clip.")
-            return
-        
-        # Handle image-to-text pasting - convert text clip to mixed in place
-        if self.additional_clipboard["type"] == "image" and current_clip["type"] == "text":
-            print("DEBUG: Image-to-text pasting - converting to mixed in place")
-            image_content = self.additional_clipboard["content"]
-            text_content = current_clip["content"]
-            
-            # Convert the current text clip to a mixed clip in-place
-            mixed_content = {
-                "text": text_content,
-                "image": image_content
-            }
-            
-            # Update the current clip
-            self.history[original_index]["type"] = "mixed"
-            self.history[original_index]["content"] = mixed_content
-            self.history[original_index]["timestamp"] = time.time()
-            
-            # Save changes
-            self._save_history()
-            
-            # Refresh the display without creating a new clip
-            self._show_clip()
-            
-            self._show_popup("Image added to current clip")
-            print("Converted text clip to mixed clip with image and text")
-            return
-            
-        # Handle image-to-mixed pasting - add image to the mixed content
-        if self.additional_clipboard["type"] == "image" and current_clip["type"] == "mixed":
-            print("DEBUG: Image-to-mixed pasting - updating mixed clip in place")
-            image_content = self.additional_clipboard["content"]
-            
-            # Update the image in the mixed clip
-            current_clip["content"]["image"] = image_content
-            current_clip["timestamp"] = time.time()
-            
-            # Save changes
-            self._save_history()
-            
-            # Refresh the display
-            self._show_clip()
-            
-            self._show_popup("Image updated in current clip")
-            print("Updated image in mixed clip")
-            return
-        
-        # Handle image-to-image pasting - replace image with new one
-        if self.additional_clipboard["type"] == "image" and current_clip["type"] == "image":
-            print("DEBUG: Image-to-image pasting - replacing image")
-            image_content = self.additional_clipboard["content"]
-            
-            # Replace the image content
-            current_clip["content"] = image_content
-            current_clip["timestamp"] = time.time()
-            
-            # Save changes
-            self._save_history()
-            
-            # Refresh the display
-            self._show_clip()
-            
-            self._show_popup("Image replaced in current clip")
-            print("Replaced image in current clip")
-            return
-            
-        # For other combinations, create a new clip
-        buffer_type = self.additional_clipboard["type"]
-        buffer_content = self.additional_clipboard["content"]
-        
-        # Create descriptive title for the new clip
-        current_title = current_clip.get("title", "")
-        
-        print("DEBUG: Creating mixed/combined clip")
-        if buffer_type == "text":
-            new_title = f"Combined: {current_title}"
-            # Create a mixed type content with both the current clip and buffer
-            if current_clip["type"] == "image":
-                # Combine image and text into mixed type
-                print("DEBUG: Creating mixed type with image+text")
-                # IMPORTANT: Structure mixed content as a proper dictionary with text and image keys
-                mixed_content = {
-                    "text": buffer_content,
-                    "image": current_clip["content"]
-                }
-                
-                # Update the current clip in-place instead of creating a new one
-                self.history[original_index]["type"] = "mixed"
-                self.history[original_index]["content"] = mixed_content
-                self.history[original_index]["timestamp"] = time.time()
-                
-                # Save changes
-                self._save_history()
-                
-                # Refresh the display
-                self._show_clip()
-                
-                self._show_popup("Text added to current image clip")
-                print("Converted image clip to mixed clip with text")
-                return
-                
-            else:
-                # Create combined text clip
-                print("DEBUG: Creating combined text clip")
-                # If current clip is already mixed, get its text content
-                if current_clip["type"] == "mixed":
-                    current_text = current_clip["content"].get("text", "")
-                    combined_text = current_text + "\n" + buffer_content if current_text else buffer_content
-                else:
-                    combined_text = current_clip["content"] + "\n" + buffer_content
-                
-                # Update the current clip in-place
-                if current_clip["type"] == "text":
-                    current_clip["content"] = combined_text
-                    current_clip["timestamp"] = time.time()
-                    self._save_history()
-                    
-                    # Refresh text display
-                    self.textbox.configure(state="normal")
-                    self.textbox.delete("1.0", "end")
-                    self.textbox.insert("1.0", combined_text)
-                    
-                    self._show_popup("Text added to current clip")
-                    print("Added text to current text clip")
-                    return
-        
-        # If we get here, we couldn't handle the combination in-place
-        self._show_popup("Cannot combine these clip types directly")
-        print("Cannot combine these clip types directly")
-
-    def copy_image_to_new_clip(self, event=None):
-        """Creates a new mixed-type clip from the current image and makes it editable."""
-        print("DEBUG: copy_image_to_new_clip called")
-        
-        if not self.img_label.winfo_ismapped() or not self.current_display_image:
-            print("DEBUG: No image to create clip from")
-            print("No image to create clip from.")
-            return
-        
-        if not (0 <= self.current_filtered_index < len(self.filtered_history_indices)):
-            print("DEBUG: No clip selected")
-            print("No clip selected.")
-            return
-        
-        try:
-            print("DEBUG: Getting image clip details")
-            original_index = self.filtered_history_indices[self.current_filtered_index]
-            if not (0 <= original_index < len(self.history)):
-                print("DEBUG: Invalid history index")
-                print("Error: Invalid history index.")
-                return
-            
-            current_clip = self.history[original_index]
-            if current_clip["type"] != "image":
-                print(f"DEBUG: Selected clip is not an image: {current_clip['type']}")
-                print("Selected clip is not an image.")
-                return
-            
-            # Create a mixed-type clip directly
-            print("DEBUG: Creating mixed-type clip from image")
-            image_content = current_clip["content"]
-            print(f"DEBUG: Image content type: {type(image_content)}, size: {len(image_content)} bytes")
-            
-            # FIXED: Create proper dictionary structure for mixed content
-            mixed_content = {
-                "text": "",  # Start with empty text
-                "image": image_content
-            }
-            
-            print(f"DEBUG: Mixed content keys: {list(mixed_content.keys())}")
-            print(f"DEBUG: Text type: {type(mixed_content['text'])}")
-            print(f"DEBUG: Image type: {type(mixed_content['image'])}")
-            
-            # Add directly to history as a mixed type
-            print("DEBUG: Adding mixed content to history")
-            self._add_to_history("mixed", mixed_content, is_from_selection=True)
-            
-            # Navigate to the new clip
-            print("DEBUG: Refreshing display to show new mixed clip")
-            self._filter_history()
-            self.current_filtered_index = 0
-            self._show_clip()
-            
-            print("DEBUG: Image copied to new editable mixed-type clip")
-            self._show_popup("Image copied to new editable clip")
-        except Exception as e:
-            print(f"DEBUG-ERROR: Error creating mixed clip: {e}")
-            traceback.print_exc()
-            print(f"Error creating mixed clip: {e}")
-        
-        if self.context_menu.winfo_ismapped():
-            self.context_menu.place_forget()
-
-    def _context_aware_copy(self, event):
-        """Handles context-aware copy operations."""
-        if event.widget == self.textbox:
-            # Handle copy from text widget - only copy selected text if there is a selection
-            try:
-                has_selection = self.textbox.tag_ranges("sel")
-                if has_selection:
-                    # Copy only the selected text to the clipboard
-                    selection = self.textbox.get("sel.first", "sel.last")
-                    if selection and selection.strip():
-                        # Copy selection to system clipboard
-                        self._force_copy_to_clipboard("text", selection)
-                        print(f"DEBUG: Selected text copied to clipboard: {len(selection)} chars")
-                        return
-            except TclError:
-                pass  # No selection
-            
-            # If no selection, fall back to copying the focused content
-            self.copy_focused_content_to_buffer()
-        else:
-            # Default to copying the entire active clip
-            self.copy_clip_to_clipboard()
-
-    def _context_aware_paste(self, event):
-        """Handles context-aware paste operations."""
-        if event.widget == self.textbox and self.textbox.cget("state") == "normal":
-            # Handle paste into textbox - use the system clipboard directly
-            try:
-                win32clipboard.OpenClipboard()
-                if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
-                    text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-                    win32clipboard.CloseClipboard()
-                    
-                    # Check if there's a selection to replace
-                    try:
-                        has_selection = self.textbox.tag_ranges("sel")
-                        if has_selection:
-                            # Replace selected text with clipboard content
-                            self.textbox.delete("sel.first", "sel.last")
-                    except TclError:
-                        pass  # No selection to replace
-                    
-                    # Insert clipboard content at current position
-                    self.textbox.insert("insert", text)
-                    self._on_text_edited()  # Mark as modified to trigger save
-                    print(f"DEBUG: Pasted {len(text)} chars at cursor position")
-                    return
-                win32clipboard.CloseClipboard()
-            except Exception as e:
-                print(f"DEBUG: Error during direct paste: {e}")
-                try:
-                    win32clipboard.CloseClipboard()
-                except:
-                    pass
-        
-        # Default to the standard buffer paste behavior
-        self.paste_from_buffer_to_in_progress_clip()
-
-    def _change_app_icon(self):
-        """Opens a file dialog to select a new application icon and updates it immediately."""
-        if not self.running:
-            return
-            
-        try:
-            from tkinter import filedialog
-            
-            # Get current icon path as initial directory
-            current_path = self.config.get("custom_icon_path")
-            initial_dir = os.path.dirname(current_path) if current_path else str(APP_DATA_DIR)
-            
-            # Show file dialog to select an image file
-            icon_path = filedialog.askopenfilename(
-                title="Select Application Icon",
-                initialdir=initial_dir,
-                filetypes=[
-                    ("Image Files", "*.png *.jpg *.jpeg *.bmp *.ico *.gif"),
-                    ("All Files", "*.*")
-                ]
-            )
-            
-            if not icon_path:  # User canceled
-                return
-                
-            # Validate the selected file
-            if not os.path.exists(icon_path):
-                self._show_popup("Selected file does not exist.")
-                return
-                
-            # Update config with new icon path
-            self.config["custom_icon_path"] = icon_path
-            self._save_config()
-            
-            # Force update window icon immediately
-            try:
-                # For Windows, we need to ensure the file is in .ico format
-                # For non-ico images, convert them first
-                if not icon_path.lower().endswith('.ico'):
-                    # Create a temporary ico file
-                    temp_ico = os.path.join(str(APP_DATA_DIR), "temp_icon.ico")
-                    img = Image.open(icon_path)
-                    if img.mode != 'RGBA':
-                        img = img.convert('RGBA')
-                    img.save(temp_ico, format="ICO", sizes=[(32, 32)])
-                    icon_path_to_use = temp_ico
-                else:
-                    icon_path_to_use = icon_path
-                
-                # Force icon update
-                self.root.iconbitmap(default=icon_path_to_use)
-                
-                # Also update using wm_iconbitmap
-                self.root.wm_iconbitmap(icon_path_to_use)
-                
-                # Force window refresh to apply icon change
-                self.root.update_idletasks()
-                
-                # For extra measure, re-set the title to trigger a window manager refresh
-                current_title = self.root.title()
-                self.root.title(current_title + " ")
-                self.root.update_idletasks()
-                self.root.title(current_title)
-                
-                # Windows-specific: Set taskbar icon using ctypes and win32 APIs
-                try:
-                    import ctypes
-                    import win32gui
-                    import win32con
-                    import win32api
-                    
-                    # Get handle to the icon file
-                    icon_handle = win32gui.LoadImage(
-                        0, 
-                        icon_path_to_use,
-                        win32con.IMAGE_ICON,
-                        0, 0,
-                        win32con.LR_LOADFROMFILE
-                    )
-                    
-                    # Get window handle
-                    hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-                    
-                    # Set both small and large icons (0 = small, 1 = large/taskbar)
-                    win32gui.SendMessage(hwnd, win32con.WM_SETICON, 0, icon_handle)
-                    win32gui.SendMessage(hwnd, win32con.WM_SETICON, 1, icon_handle)
-                    
-                    # Force taskbar refresh
-                    ctypes.windll.user32.FlashWindow(hwnd, 0)
-                    
-                    # Tell Windows to update the non-client area (window border, titlebar, etc.)
-                    win32gui.SetWindowPos(
-                        hwnd, 0, 0, 0, 0, 0, 
-                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | 
-                        win32con.SWP_NOACTIVATE | win32con.SWP_NOZORDER | 
-                        win32con.SWP_FRAMECHANGED
-                    )
-                    
-                except Exception as taskbar_err:
-                    print(f"Windows taskbar icon update failed: {taskbar_err}")
-                
-                print(f"Window icon updated to: {icon_path_to_use}")
-            except Exception as window_icon_err:
-                print(f"Could not update window icon: {window_icon_err}")
-            
-            # Apply the new icon to system tray
-            self._reload_tray_icon()
-            
-            # Show confirmation
-            self._show_popup(f"Icon changed to:\n{os.path.basename(icon_path)}", priority=2)
-            
-            # Log the change
-            print(f"Custom icon set to: {icon_path}")
-            
-        except Exception as e:
-            print(f"Error changing icon: {e}")
-            traceback.print_exc()
-            self._show_popup(f"Error changing icon: {e}")
-            
-    def _reload_tray_icon(self):
-        """Reloads the tray icon to apply changes immediately."""
-        if not self.running:
-            return
-            
-        try:
-            # Check if we have an icon
-            if not hasattr(self, 'icon') or not self.icon:
-                print("No icon to reload")
-                return
-                
-            # Remember the visibility state
-            was_visible = False
-            if hasattr(self.icon, 'visible'):
-                was_visible = self.icon.visible
-                
-            # Stop the current icon (this automatically removes it from tray)
-            print("Stopping current tray icon...")
-            try:
-                self.icon.stop()
-                # Give it a moment to close properly
-                time.sleep(0.5)
-            except Exception as stop_err:
-                print(f"Error stopping icon: {stop_err}")
-            
-            # Generate new icon image
-            new_icon_image = self._icon_image()
-            if not new_icon_image:
-                print("Failed to create new icon image")
-                return
-                
-            # Create and start a new icon
-            print("Creating new tray icon...")
-            
-            # Define menu again (same as in _setup_tray)
-            def schedule(f):
-                return lambda: self.root.after(0, f) if self.running else None
-
-            is_vis = lambda i: self.running and self.root.winfo_viewable()
-            is_hid = lambda i: self.running and not self.root.winfo_viewable()
-            can_clr = lambda i: self.running and bool(self.history)
-            can_sv = lambda i: self.running and bool(self.filtered_history_indices)
-            is_p = lambda i: self.running and self.capture_paused
-            is_r = lambda i: self.running and not self.capture_paused
-
-            menu = (
-                item(
-                    "Show WinCB-Elite",
-                    schedule(self._do_show_window),
-                    default=True,
-                    enabled=is_hid,
-                ),
-                item("Hide WinCB-Elite", schedule(self._hide_window), enabled=is_vis),
-                item("Pause Capture", schedule(self._toggle_capture), enabled=is_r),
-                item("Resume Capture", schedule(self._toggle_capture), enabled=is_p),
-                pystray.Menu.SEPARATOR,
-                item(
-                    "Snap Window",
-                    pystray.Menu(
-                        item("Top-Left", schedule(self.snap_top_left)),
-                        item("Top-Right", schedule(self.snap_top_right)),
-                        item("Bottom-Left", schedule(self.snap_bottom_left)),
-                        item("Bottom-Right", schedule(self.snap_bottom_right)),
-                        item("Center", schedule(self.snap_center)),
-                    ),
-                    enabled=is_vis,
-                ),
-                pystray.Menu.SEPARATOR,
-                item(
-                    "ClipGroup Batch Export", schedule(self._prompt_and_save_batch), enabled=can_sv
-                ),
-                item("Clear History", schedule(self.clear_history), enabled=can_clr),
-                pystray.Menu.SEPARATOR,
-                item("Quit WinCB-Elite", schedule(self._prompt_close), enabled=self.running),
-            )
-            
-            # Create new icon
-            new_icon = pystray.Icon(
-                APP_NAME, new_icon_image, f"{APP_NAME} - History", pystray.Menu(*menu)
-            )
-            
-            # Start the icon in a new thread
-            icon_thread = threading.Thread(
-                target=lambda: self._run_icon_thread(new_icon, was_visible),
-                daemon=True
-            )
-            icon_thread.start()
-            
-            print("Icon reloaded successfully")
-            
-        except Exception as e:
-            print(f"Error reloading tray icon: {e}")
-            traceback.print_exc()
-    
-    def _run_icon_thread(self, icon, make_visible=False):
-        """Runs the icon in a separate thread and handles visibility."""
-        try:
-            self.icon = icon
-            
-            # Show the icon if it was visible before
-            if make_visible:
-                self.icon.visible = True
-                
-            print("Starting new tray icon...")
-            self.icon.run()
-        except Exception as e:
-            print(f"Error running icon thread: {e}")
-            traceback.print_exc()
-        finally:
-            print("Icon thread finished")
-            self.icon = None
 
 
 # --- Main Execution ---
@@ -3875,7 +2367,7 @@ if __name__ == "__main__":
     except Exception as dpi_e:
         print(f"Info: DPI failed - {dpi_e}")
     try:
-        app = WinCB_Elite()
+        app = Clippy()
     except KeyboardInterrupt:
         print("\n--- Kbd Interrupt, exiting ---")
         sys.exit(0)
